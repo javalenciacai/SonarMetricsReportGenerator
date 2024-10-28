@@ -6,8 +6,9 @@ from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
-from database.schema import initialize_database
+from database.schema import initialize_database, delete_project_data
 import os
+from datetime import datetime, timedelta
 
 # Initialize scheduler as a global variable
 scheduler = SchedulerService()
@@ -83,6 +84,37 @@ def setup_sidebar():
         
         return st.sidebar
 
+def display_project_management(metrics_processor):
+    """Display project management section in sidebar"""
+    with st.sidebar:
+        st.markdown("### 🔧 Project Management")
+        
+        # Get all projects status
+        projects_status = metrics_processor.get_project_status()
+        
+        if projects_status:
+            # Show inactive projects
+            inactive_projects = [p for p in projects_status 
+                               if p['inactive_duration'] > timedelta(days=30)]
+            
+            if inactive_projects:
+                st.warning(f"⚠️ {len(inactive_projects)} inactive project(s) found")
+                
+                for project in inactive_projects:
+                    with st.expander(f"📁 {project['name']}", expanded=False):
+                        st.text(f"Last seen: {project['last_seen'].strftime('%Y-%m-%d')}")
+                        st.text(f"Inactive for: {project['inactive_duration'].days} days")
+                        
+                        if st.button(f"🗑️ Delete {project['name']}", key=f"delete_{project['repo_key']}"):
+                            success, message = delete_project_data(project['repo_key'])
+                            if success:
+                                st.success(f"✅ {message}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+            else:
+                st.success("✅ All projects are active")
+
 def main():
     st.set_page_config(
         page_title="SonarCloud Metrics Dashboard",
@@ -121,8 +153,12 @@ def main():
     # Initialize report generator and notification service after validating token
     report_generator = ReportGenerator(sonar_api)
     notification_service = NotificationService(report_generator)
+    metrics_processor = MetricsProcessor()
     
     st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
+    
+    # Display project management section
+    display_project_management(metrics_processor)
     
     # Fetch projects
     projects = sonar_api.get_projects()

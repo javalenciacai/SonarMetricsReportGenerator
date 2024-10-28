@@ -1,16 +1,17 @@
 import pandas as pd
 from database.connection import execute_query
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class MetricsProcessor:
     @staticmethod
     def store_metrics(repo_key, name, metrics):
-        # Store repository
+        # Store repository and update last_seen timestamp
         repo_query = """
-        INSERT INTO repositories (repo_key, name)
-        VALUES (%s, %s)
+        INSERT INTO repositories (repo_key, name, last_seen)
+        VALUES (%s, %s, CURRENT_TIMESTAMP)
         ON CONFLICT (repo_key) DO UPDATE
-        SET name = EXCLUDED.name
+        SET name = EXCLUDED.name,
+            last_seen = CURRENT_TIMESTAMP
         RETURNING id;
         """
         result = execute_query(repo_query, (repo_key, name))
@@ -51,5 +52,37 @@ class MetricsProcessor:
         if not result:
             return []
             
-        # Convert the result to a list of dictionaries with proper timestamp handling
         return [dict(row) for row in result]
+
+    @staticmethod
+    def get_inactive_projects(days=30):
+        """Get projects that haven't been updated in the specified number of days"""
+        query = """
+        SELECT 
+            repo_key,
+            name,
+            last_seen,
+            created_at
+        FROM repositories
+        WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '%s days'
+        ORDER BY last_seen DESC;
+        """
+        result = execute_query(query, (days,))
+        return [dict(row) for row in result] if result else []
+
+    @staticmethod
+    def get_project_status():
+        """Get status of all projects including active and inactive ones"""
+        query = """
+        SELECT 
+            repo_key,
+            name,
+            is_active,
+            last_seen,
+            created_at,
+            CURRENT_TIMESTAMP - last_seen as inactive_duration
+        FROM repositories
+        ORDER BY last_seen DESC;
+        """
+        result = execute_query(query)
+        return [dict(row) for row in result] if result else []
