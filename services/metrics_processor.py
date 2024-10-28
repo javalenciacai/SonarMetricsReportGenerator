@@ -61,7 +61,7 @@ class MetricsProcessor:
             m.timestamp::text as timestamp
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
-        WHERE r.repo_key = %s AND r.is_active = true
+        WHERE r.repo_key = %s
         ORDER BY m.timestamp DESC;
         """
         result = execute_query(query, (repo_key,))
@@ -76,10 +76,11 @@ class MetricsProcessor:
             name,
             last_seen,
             created_at,
-            is_marked_for_deletion
+            is_marked_for_deletion,
+            is_active,
+            CURRENT_TIMESTAMP - last_seen as inactive_duration
         FROM repositories
         WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '%s days'
-            AND is_active = true
         ORDER BY last_seen DESC;
         """
         result = execute_query(query, (days,))
@@ -98,7 +99,9 @@ class MetricsProcessor:
             created_at,
             CURRENT_TIMESTAMP - last_seen as inactive_duration
         FROM repositories
-        ORDER BY last_seen DESC;
+        ORDER BY 
+            is_active DESC,
+            last_seen DESC;
         """
         result = execute_query(query)
         return [dict(row) for row in result] if result else []
@@ -116,3 +119,19 @@ class MetricsProcessor:
             return True, "Project marked as inactive"
         except Exception as e:
             return False, f"Error marking project as inactive: {str(e)}"
+
+    @staticmethod
+    def check_and_mark_inactive_projects(active_project_keys):
+        """Check and mark projects as inactive if they are not in the active projects list"""
+        query = """
+        UPDATE repositories
+        SET is_active = false
+        WHERE repo_key NOT IN %s
+            AND is_active = true;
+        """
+        try:
+            if active_project_keys:
+                execute_query(query, (tuple(active_project_keys),))
+            return True, "Inactive projects updated"
+        except Exception as e:
+            return False, f"Error updating inactive projects: {str(e)}"

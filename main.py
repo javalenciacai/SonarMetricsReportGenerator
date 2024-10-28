@@ -6,7 +6,7 @@ from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
-from database.schema import initialize_database, delete_project_data, mark_project_for_deletion, unmark_project_for_deletion
+from database.schema import initialize_database
 import os
 from datetime import datetime, timedelta
 
@@ -63,7 +63,6 @@ def setup_automated_reports(sonar_api, project_key, email_recipients):
 def setup_sidebar():
     """Configure and display sidebar content"""
     with st.sidebar:
-        # Use fixed width for the logo to ensure proper display
         st.markdown("""
             <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
                 <img src="static/sonarcloud-logo.svg" alt="SonarCloud Logo" style="width: 180px; height: auto;">
@@ -84,7 +83,7 @@ def setup_sidebar():
         
         return st.sidebar
 
-def display_project_management(metrics_processor):
+def display_project_management(metrics_processor, active_project_keys):
     """Display project management section in sidebar"""
     with st.sidebar:
         st.markdown("### 🔧 Project Management")
@@ -93,49 +92,31 @@ def display_project_management(metrics_processor):
         projects_status = metrics_processor.get_project_status()
         
         if projects_status:
-            # Show inactive projects
-            inactive_projects = [p for p in projects_status 
-                               if p['inactive_duration'] > timedelta(days=30)]
+            # Update inactive status for projects not in active_project_keys
+            if active_project_keys:
+                metrics_processor.check_and_mark_inactive_projects(active_project_keys)
             
+            # Show inactive projects
+            inactive_projects = [p for p in projects_status if not p['is_active']]
+            active_projects = [p for p in projects_status if p['is_active']]
+            
+            # Display active projects count
+            st.success(f"✅ {len(active_projects)} active project(s)")
+            
+            # Display inactive projects
             if inactive_projects:
-                st.warning(f"⚠️ {len(inactive_projects)} inactive project(s) found")
+                st.warning(f"⚠️ {len(inactive_projects)} inactive project(s)")
                 
                 for project in inactive_projects:
-                    with st.expander(f"📁 {project['name']}", expanded=False):
+                    with st.expander(f"📁 {project['name']} (Inactive)", expanded=False):
                         st.text(f"Last seen: {project['last_seen'].strftime('%Y-%m-%d')}")
                         st.text(f"Inactive for: {project['inactive_duration'].days} days")
+                        st.markdown("ℹ️ *This project is no longer found in SonarCloud*")
                         
-                        # Show mark for deletion button if not marked
-                        if not project.get('is_marked_for_deletion'):
-                            if st.button(f"⚠️ Mark for Deletion", key=f"mark_{project['repo_key']}"):
-                                success, message = mark_project_for_deletion(project['repo_key'])
-                                if success:
-                                    st.success(f"✅ {message}")
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ {message}")
-                        else:
-                            # Show confirm deletion and cancel buttons if marked
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button(f"🗑️ Confirm Delete", key=f"confirm_{project['repo_key']}", 
-                                           help="Permanently delete this project"):
-                                    success, message = delete_project_data(project['repo_key'])
-                                    if success:
-                                        st.success(f"✅ {message}")
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ {message}")
-                            with col2:
-                                if st.button(f"↩️ Cancel", key=f"cancel_{project['repo_key']}"):
-                                    success, message = unmark_project_for_deletion(project['repo_key'])
-                                    if success:
-                                        st.success(f"✅ {message}")
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ {message}")
+                        if project.get('is_marked_for_deletion'):
+                            st.info("🗑️ Marked for deletion")
             else:
-                st.success("✅ All projects are active")
+                st.success("✅ No inactive projects")
 
 def main():
     st.set_page_config(
@@ -179,23 +160,26 @@ def main():
     
     st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
     
-    # Display project management section
-    display_project_management(metrics_processor)
-    
     # Fetch projects
     projects = sonar_api.get_projects()
     if not projects:
         st.warning("No projects found in the organization")
         return
 
+    # Get list of active project keys from SonarCloud
+    active_project_keys = [project['key'] for project in projects]
+    
+    # Display project management section
+    display_project_management(metrics_processor, active_project_keys)
+    
     # Project selection in sidebar with 'All Projects' option
     with sidebar:
         st.markdown("### 🎯 Project Selection")
         project_names = {project['key']: project['name'] for project in projects}
-        project_names['all'] = "All Projects"  # Add 'All Projects' option
+        project_names['all'] = "All Projects"
         selected_project = st.selectbox(
             "Select Project",
-            options=['all'] + list(project_names.keys())[:-1],  # Place 'all' at the beginning
+            options=['all'] + list(project_names.keys())[:-1],
             format_func=lambda x: project_names[x]
         )
 
@@ -246,7 +230,7 @@ def main():
         
         # Fetch metrics for all projects
         all_project_metrics = {}
-        for project_key in list(project_names.keys())[:-1]:  # Exclude 'all'
+        for project_key in active_project_keys:  # Only fetch metrics for active projects
             metrics = sonar_api.get_project_metrics(project_key)
             if metrics:
                 metrics_dict = {m['metric']: float(m['value']) for m in metrics}
