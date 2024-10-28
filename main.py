@@ -3,6 +3,7 @@ from services.sonarcloud import SonarCloudAPI
 from services.metrics_processor import MetricsProcessor
 from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
+from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends
 from components.visualizations import plot_metrics_history
 from database.schema import initialize_database
@@ -11,6 +12,7 @@ import os
 # Initialize scheduler as a global variable
 scheduler = SchedulerService()
 report_generator = None
+notification_service = None
 
 def setup_automated_reports(sonar_api, project_key, email_recipients):
     """Setup automated report generation"""
@@ -33,11 +35,29 @@ def setup_automated_reports(sonar_api, project_key, email_recipients):
                 if not success:
                     st.error(f"Failed to send weekly report: {send_message}")
 
+        def check_metric_changes():
+            """Check for significant metric changes"""
+            metrics = sonar_api.get_project_metrics(project_key)
+            if metrics:
+                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                historical_data = MetricsProcessor.get_historical_data(project_key)
+                
+                if historical_data:
+                    notification_service.send_notification(
+                        project_key=project_key,
+                        metrics_data=metrics_dict,
+                        historical_data=historical_data,
+                        recipients=email_recipients
+                    )
+
         # Schedule daily report at 1 AM
         scheduler.schedule_daily_report(generate_daily_report, hour=1, minute=0)
         
         # Schedule weekly report for Monday at 2 AM
         scheduler.schedule_weekly_report(generate_weekly_report, day_of_week=0, hour=2, minute=0)
+        
+        # Schedule metric change checks every 4 hours
+        scheduler.schedule_metric_checks(check_metric_changes, interval_hours=4)
         
         return True
     except Exception as e:
@@ -51,8 +71,8 @@ def main():
     # Initialize database
     initialize_database()
     
-    # Initialize global report generator
-    global report_generator
+    # Initialize global variables
+    global report_generator, notification_service
 
     # Start the scheduler
     if not scheduler.scheduler.running:
@@ -72,8 +92,9 @@ def main():
         st.error(message)
         return
     
-    # Initialize report generator after validating token
+    # Initialize report generator and notification service after validating token
     report_generator = ReportGenerator(sonar_api)
+    notification_service = NotificationService(report_generator)
     
     st.success(f"Token validated successfully. Using organization: {sonar_api.organization}")
     
@@ -93,7 +114,7 @@ def main():
 
     if selected_project:
         # Automated reporting setup section
-        st.sidebar.subheader("Automated Reports")
+        st.sidebar.subheader("Automated Reports & Notifications")
         
         # Email configuration status
         try:
@@ -107,11 +128,11 @@ def main():
         
         email_recipients = st.sidebar.text_input(
             "Email Recipients (comma-separated)",
-            help="Enter email addresses to receive automated reports"
+            help="Enter email addresses to receive reports and notifications"
         )
 
         if email_recipients:
-            if st.sidebar.button("Setup Automated Reports"):
+            if st.sidebar.button("Setup Automated Reports & Notifications"):
                 recipients_list = [email.strip() for email in email_recipients.split(",")]
                 
                 # Test report generation and sending
@@ -122,10 +143,11 @@ def main():
                         if success:
                             if setup_automated_reports(sonar_api, selected_project, recipients_list):
                                 st.sidebar.success(f"""
-                                    ✅ Report setup successful!
+                                    ✅ Setup successful!
                                     📧 Test email sent to: {', '.join(recipients_list)}
-                                    📅 Daily reports scheduled for 1:00 AM
-                                    📅 Weekly reports scheduled for Monday 2:00 AM
+                                    📅 Daily reports: 1:00 AM
+                                    📅 Weekly reports: Monday 2:00 AM
+                                    🔔 Metric change notifications: Every 4 hours
                                 """)
                         else:
                             st.sidebar.error(f"❌ Failed to send test email: {send_message}")

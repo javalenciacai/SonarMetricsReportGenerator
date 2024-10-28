@@ -277,3 +277,36 @@ class ReportGenerator:
             error_msg = f"Error sending email: {str(e)}"
             self.logger.error(error_msg)
             return False, error_msg
+
+    def send_email_notification(self, subject, html_content, recipients):
+        """Send notification email"""
+        self.logger.info(f"Preparing to send notification email to: {', '.join(recipients)}")
+        try:
+            # Verify SMTP connection first
+            smtp_status, smtp_message = self.verify_smtp_connection()
+            if not smtp_status:
+                return False, smtp_message
+
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.smtp_config['username']
+            msg['To'] = ', '.join(recipients)
+
+            # Add HTML content
+            msg.attach(MIMEText(html_content, 'html'))
+
+            # Send email
+            with smtplib.SMTP(self.smtp_config['server'], self.smtp_config['port']) as server:
+                server.starttls()
+                server.login(self.smtp_config['username'], self.smtp_config['password'])
+                server.send_message(msg)
+
+            success_msg = f"Notification email sent successfully to {', '.join(recipients)}"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except Exception as e:
+            error_msg = f"Error sending notification email: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg

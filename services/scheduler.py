@@ -1,5 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
 import logging
 
@@ -44,3 +45,15 @@ class SchedulerService:
             replace_existing=True
         )
         self.logger.info(f"Weekly report scheduled for day {day_of_week} at {hour:02d}:{minute:02d}")
+
+    def schedule_metric_checks(self, job_func, interval_hours=4):
+        """Schedule metric change checks at regular intervals"""
+        trigger = IntervalTrigger(hours=interval_hours)
+        self.scheduler.add_job(
+            job_func,
+            trigger=trigger,
+            id='metric_checks',
+            name='Check Metric Changes',
+            replace_existing=True
+        )
+        self.logger.info(f"Metric checks scheduled every {interval_hours} hours")
