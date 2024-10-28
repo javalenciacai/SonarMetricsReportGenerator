@@ -35,11 +35,21 @@ class MetricsProcessor:
     @staticmethod
     def get_historical_data(repo_key):
         query = """
-        SELECT m.bugs, m.vulnerabilities, m.code_smells, m.coverage, 
-               m.duplicated_lines_density, m.timestamp
+        SELECT 
+            m.bugs, 
+            m.vulnerabilities, 
+            m.code_smells, 
+            m.coverage, 
+            m.duplicated_lines_density, 
+            m.timestamp::text as timestamp
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
         WHERE r.repo_key = %s
         ORDER BY m.timestamp DESC;
         """
-        return execute_query(query, (repo_key,))
+        result = execute_query(query, (repo_key,))
+        if not result:
+            return []
+            
+        # Convert the result to a list of dictionaries with proper timestamp handling
+        return [dict(row) for row in result]
