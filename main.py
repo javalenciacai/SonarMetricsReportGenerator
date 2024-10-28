@@ -15,30 +15,24 @@ report_generator = None
 def setup_automated_reports(sonar_api, project_key, email_recipients):
     """Setup automated report generation"""
     global report_generator
-    if report_generator is None:
-        report_generator = ReportGenerator(sonar_api)
-    
-    # Verify SMTP configuration first
-    smtp_status, smtp_message = report_generator.verify_smtp_connection()
-    if not smtp_status:
-        st.error(f"SMTP Configuration Error: {smtp_message}")
+    if not report_generator:
         return False
-
-    def generate_daily_report():
-        report_data, message = report_generator.generate_project_report(project_key, 'daily')
-        if report_data:
-            success, send_message = report_generator.send_report_email(report_data, email_recipients)
-            if not success:
-                st.error(f"Failed to send daily report: {send_message}")
-
-    def generate_weekly_report():
-        report_data, message = report_generator.generate_project_report(project_key, 'weekly')
-        if report_data:
-            success, send_message = report_generator.send_report_email(report_data, email_recipients)
-            if not success:
-                st.error(f"Failed to send weekly report: {send_message}")
-
+    
     try:
+        def generate_daily_report():
+            report_data, message = report_generator.generate_project_report(project_key, 'daily')
+            if report_data:
+                success, send_message = report_generator.send_report_email(report_data, email_recipients)
+                if not success:
+                    st.error(f"Failed to send daily report: {send_message}")
+
+        def generate_weekly_report():
+            report_data, message = report_generator.generate_project_report(project_key, 'weekly')
+            if report_data:
+                success, send_message = report_generator.send_report_email(report_data, email_recipients)
+                if not success:
+                    st.error(f"Failed to send weekly report: {send_message}")
+
         # Schedule daily report at 1 AM
         scheduler.schedule_daily_report(generate_daily_report, hour=1, minute=0)
         
@@ -56,6 +50,9 @@ def main():
 
     # Initialize database
     initialize_database()
+    
+    # Initialize global report generator
+    global report_generator
 
     # Start the scheduler
     if not scheduler.scheduler.running:
@@ -74,6 +71,9 @@ def main():
     if not is_valid:
         st.error(message)
         return
+    
+    # Initialize report generator after validating token
+    report_generator = ReportGenerator(sonar_api)
     
     st.success(f"Token validated successfully. Using organization: {sonar_api.organization}")
     
@@ -96,14 +96,14 @@ def main():
         st.sidebar.subheader("Automated Reports")
         
         # Email configuration status
-        if report_generator is None:
-            report_generator = ReportGenerator(sonar_api)
-        
-        smtp_status, smtp_message = report_generator.verify_smtp_connection()
-        if smtp_status:
-            st.sidebar.success("✉️ Email Configuration: Connected")
-        else:
-            st.sidebar.error(f"✉️ Email Configuration: {smtp_message}")
+        try:
+            smtp_status, smtp_message = report_generator.verify_smtp_connection()
+            if smtp_status:
+                st.sidebar.success("✉️ Email Configuration: Connected")
+            else:
+                st.sidebar.error(f"✉️ Email Configuration: {smtp_message}")
+        except Exception as e:
+            st.sidebar.error(f"✉️ Email Configuration Error: {str(e)}")
         
         email_recipients = st.sidebar.text_input(
             "Email Recipients (comma-separated)",
