@@ -69,18 +69,6 @@ def setup_sidebar():
             </div>
         """, unsafe_allow_html=True)
         st.markdown("---")
-        
-        st.markdown("""
-            <style>
-            .sidebar-info {
-                padding: 1rem;
-                background-color: #1A1F25;
-                border-radius: 0.5rem;
-                margin-bottom: 1rem;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-        
         return st.sidebar
 
 def display_project_management(metrics_processor, active_project_keys):
@@ -260,8 +248,10 @@ def main():
     if selected_project == 'all':
         st.markdown("## 📊 Multi-Project Overview")
         
-        # Fetch metrics for active projects
+        # Create multi-project metrics dictionary
         all_project_metrics = {}
+        
+        # Add metrics for active projects
         for project_key in active_project_keys:
             metrics = sonar_api.get_project_metrics(project_key)
             if metrics:
@@ -271,6 +261,25 @@ def main():
                     'metrics': metrics_dict
                 }
                 MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
+
+        # Add metrics for inactive projects
+        for project in all_projects_status:
+            if not project['is_active']:
+                latest_metrics = project.get('latest_metrics')
+                if latest_metrics:
+                    metrics_dict = {
+                        'bugs': float(latest_metrics['bugs']),
+                        'vulnerabilities': float(latest_metrics['vulnerabilities']),
+                        'code_smells': float(latest_metrics['code_smells']),
+                        'coverage': float(latest_metrics['coverage']),
+                        'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
+                        'ncloc': float(latest_metrics['ncloc']),
+                        'sqale_index': float(latest_metrics['sqale_index'])
+                    }
+                    all_project_metrics[project['repo_key']] = {
+                        'name': f"{project['name']} (Inactive)",
+                        'metrics': metrics_dict
+                    }
 
         # Display multi-project metrics
         display_multi_project_metrics(all_project_metrics)
@@ -285,13 +294,35 @@ def main():
         if is_inactive:
             st.warning(f"⚠️ This project is currently inactive. Showing historical data only.")
             
-            # Display historical data for inactive project
-            historical_data = MetricsProcessor.get_historical_data(selected_project)
-            if historical_data:
-                st.markdown("### 📈 Historical Data Analysis")
-                plot_metrics_history(historical_data)
-                display_metric_trends(historical_data)
-                create_download_report(historical_data)
+            # Get the latest metrics for the inactive project
+            latest_metrics = metrics_processor.get_latest_metrics(selected_project)
+            if latest_metrics:
+                # Create tabs for different views
+                tab1, tab2 = st.tabs(["📊 Last Available Metrics", "📈 Historical Data"])
+                
+                with tab1:
+                    st.info(f"⏰ Last updated: {latest_metrics['last_seen']}")
+                    st.info(f"⌛ Inactive for: {latest_metrics['inactive_duration'].days} days")
+                    
+                    # Convert latest metrics to the format expected by display_current_metrics
+                    metrics_dict = {
+                        'bugs': float(latest_metrics['bugs']),
+                        'vulnerabilities': float(latest_metrics['vulnerabilities']),
+                        'code_smells': float(latest_metrics['code_smells']),
+                        'coverage': float(latest_metrics['coverage']),
+                        'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
+                        'ncloc': float(latest_metrics['ncloc']),
+                        'sqale_index': float(latest_metrics['sqale_index'])
+                    }
+                    display_current_metrics(metrics_dict)
+                
+                with tab2:
+                    historical_data = metrics_processor.get_historical_data(selected_project)
+                    if historical_data:
+                        st.markdown("### 📈 Historical Data Analysis")
+                        plot_metrics_history(historical_data)
+                        display_metric_trends(historical_data)
+                        create_download_report(historical_data)
             else:
                 st.info("No historical data available for this inactive project.")
         else:

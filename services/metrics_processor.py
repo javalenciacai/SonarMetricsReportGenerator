@@ -68,6 +68,31 @@ class MetricsProcessor:
         return [dict(row) for row in result] if result else []
 
     @staticmethod
+    def get_latest_metrics(repo_key):
+        """Get the most recent metrics for a project"""
+        query = """
+        SELECT 
+            m.bugs, 
+            m.vulnerabilities, 
+            m.code_smells, 
+            m.coverage, 
+            m.duplicated_lines_density,
+            m.ncloc,
+            m.sqale_index,
+            m.timestamp::text as timestamp,
+            r.last_seen,
+            r.is_active,
+            CURRENT_TIMESTAMP - r.last_seen as inactive_duration
+        FROM metrics m
+        JOIN repositories r ON r.id = m.repository_id
+        WHERE r.repo_key = %s
+        ORDER BY m.timestamp DESC
+        LIMIT 1;
+        """
+        result = execute_query(query, (repo_key,))
+        return dict(result[0]) if result else None
+
+    @staticmethod
     def get_inactive_projects(days=30):
         """Get projects that haven't been updated in the specified number of days"""
         query = """
@@ -97,8 +122,13 @@ class MetricsProcessor:
             is_marked_for_deletion,
             last_seen,
             created_at,
-            CURRENT_TIMESTAMP - last_seen as inactive_duration
-        FROM repositories
+            CURRENT_TIMESTAMP - last_seen as inactive_duration,
+            (SELECT row_to_json(m.*)
+             FROM metrics m
+             WHERE m.repository_id = r.id
+             ORDER BY m.timestamp DESC
+             LIMIT 1) as latest_metrics
+        FROM repositories r
         ORDER BY 
             is_active DESC,
             last_seen DESC;
