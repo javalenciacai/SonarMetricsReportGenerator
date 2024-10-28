@@ -8,17 +8,18 @@ def create_metric_card(title, value, status, help_text):
         <div style="
             padding: 1rem;
             border-radius: 0.5rem;
-            background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            background: #1A1F25;
+            border: 1px solid #2D3748;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.24);
             margin-bottom: 1rem;">
-            <div style="color: #666; font-size: 0.8rem;">{title}</div>
-            <div style="font-size: 1.5rem; font-weight: bold; margin: 0.5rem 0;">
+            <div style="color: #A0AEC0; font-size: 0.8rem;">{title}</div>
+            <div style="font-size: 1.5rem; font-weight: bold; margin: 0.5rem 0; color: #FAFAFA;">
                 {value} {status}
             </div>
         </div>
     """, unsafe_allow_html=True)
     if help_text:
-        st.markdown(f"<small>{help_text}</small>", unsafe_allow_html=True)
+        st.markdown(f'<small style="color: #A0AEC0;">{help_text}</small>', unsafe_allow_html=True)
 
 def display_current_metrics(metrics_data):
     st.markdown("""
@@ -33,11 +34,14 @@ def display_current_metrics(metrics_data):
         .big-number {
             font-size: 2.5rem;
             font-weight: bold;
-            color: #262730;
+            color: #FAFAFA;
         }
-        .trend-positive { color: #28a745; }
-        .trend-negative { color: #dc3545; }
-        .trend-neutral { color: #6c757d; }
+        .trend-positive { color: #48BB78; }
+        .trend-negative { color: #F56565; }
+        .trend-neutral { color: #A0AEC0; }
+        .stMarkdown {
+            color: #FAFAFA;
+        }
         </style>
     """, unsafe_allow_html=True)
     
@@ -48,24 +52,24 @@ def display_current_metrics(metrics_data):
     # Create header with quality score
     col1, col2 = st.columns([2, 1])
     with col1:
-        st.markdown("### Executive Dashboard")
-        st.markdown("Real-time code quality metrics and insights")
+        st.markdown('<h3 style="color: #FAFAFA;">Executive Dashboard</h3>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #A0AEC0;">Real-time code quality metrics and insights</p>', unsafe_allow_html=True)
     with col2:
         st.markdown(f"""
             <div style="text-align: right;">
-                <div style="font-size: 0.9rem; color: #666;">Overall Quality Score</div>
+                <div style="font-size: 0.9rem; color: #A0AEC0;">Overall Quality Score</div>
                 <div class="big-number">{quality_score:.1f}</div>
-                <div style="font-size: 0.8rem; color: #666;">out of 100</div>
+                <div style="font-size: 0.8rem; color: #A0AEC0;">out of 100</div>
             </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("---")
+    st.markdown('<hr style="border-color: #2D3748;">', unsafe_allow_html=True)
     
     # Display metrics in organized sections
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("#### 🛡️ Security & Reliability")
+        st.markdown('<h4 style="color: #FAFAFA;">🛡️ Security & Reliability</h4>', unsafe_allow_html=True)
         bugs = int(metrics_data.get('bugs', 0))
         vulnerabilities = int(metrics_data.get('vulnerabilities', 0))
         create_metric_card(
@@ -82,7 +86,7 @@ def display_current_metrics(metrics_data):
         )
     
     with col2:
-        st.markdown("#### 🔍 Code Quality")
+        st.markdown('<h4 style="color: #FAFAFA;">🔍 Code Quality</h4>', unsafe_allow_html=True)
         code_smells = int(metrics_data.get('code_smells', 0))
         duplications = f"{metrics_data.get('duplicated_lines_density', 0):.1f}%"
         create_metric_card(
@@ -99,7 +103,7 @@ def display_current_metrics(metrics_data):
         )
     
     with col3:
-        st.markdown("#### 📊 Test Coverage")
+        st.markdown('<h4 style="color: #FAFAFA;">📊 Test Coverage</h4>', unsafe_allow_html=True)
         coverage = f"{metrics_data.get('coverage', 0):.1f}%"
         coverage_status = metric_status.get('coverage', 'neutral')
         create_metric_card(
@@ -110,7 +114,7 @@ def display_current_metrics(metrics_data):
         )
 
 def display_metric_trends(historical_data):
-    st.markdown("### 📈 Trend Analysis")
+    st.markdown('<h3 style="color: #FAFAFA;">📈 Trend Analysis</h3>', unsafe_allow_html=True)
     
     metrics = ['bugs', 'vulnerabilities', 'code_smells', 'coverage', 'duplicated_lines_density']
     analyzer = MetricAnalyzer()
@@ -126,28 +130,28 @@ def display_metric_trends(historical_data):
                 with col1:
                     trend_emoji = "📈" if trend_data['trend'] == 'increasing' else "📉" if trend_data['trend'] == 'decreasing' else "➡️"
                     st.markdown(f"""
-                        <div style='background-color: white; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12);'>
-                            <div style='font-size: 0.9rem; color: #666;'>Current Trend</div>
-                            <div style='font-size: 1.2rem; margin: 0.5rem 0;'>{trend_emoji} {trend_data['trend'].title()}</div>
-                            <div style='font-size: 0.9rem;'>Current value: {trend_data['current_value']:.2f}</div>
-                            <div style='font-size: 0.9rem;'>Average value: {trend_data['avg_value']:.2f}</div>
+                        <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
+                            <div style='font-size: 0.9rem; color: #A0AEC0;'>Current Trend</div>
+                            <div style='font-size: 1.2rem; margin: 0.5rem 0; color: #FAFAFA;'>{trend_emoji} {trend_data['trend'].title()}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current value: {trend_data['current_value']:.2f}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Average value: {trend_data['avg_value']:.2f}</div>
                         </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
                     change = period_comparison['change_percentage']
-                    change_color = "green" if period_comparison['improved'] else "red"
+                    change_color = "#48BB78" if period_comparison['improved'] else "#F56565"
                     st.markdown(f"""
-                        <div style='background-color: white; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12);'>
-                            <div style='font-size: 0.9rem; color: #666;'>7-Day Comparison</div>
+                        <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
+                            <div style='font-size: 0.9rem; color: #A0AEC0;'>7-Day Comparison</div>
                             <div style='font-size: 1.2rem; margin: 0.5rem 0; color: {change_color};'>{change:+.1f}%</div>
-                            <div style='font-size: 0.9rem;'>Current period avg: {period_comparison['current_period_avg']:.2f}</div>
-                            <div style='font-size: 0.9rem;'>Previous period avg: {period_comparison['previous_period_avg']:.2f}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current period avg: {period_comparison['current_period_avg']:.2f}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Previous period avg: {period_comparison['previous_period_avg']:.2f}</div>
                         </div>
                     """, unsafe_allow_html=True)
 
 def create_download_report(data):
-    st.markdown("### 📥 Download Report")
+    st.markdown('<h3 style="color: #FAFAFA;">📥 Download Report</h3>', unsafe_allow_html=True)
     df = pd.DataFrame(data)
     
     # Add quality score calculation
