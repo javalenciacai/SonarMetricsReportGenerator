@@ -18,12 +18,20 @@ def main():
         st.warning("Please enter your SonarCloud token to continue")
         return
 
-    # Initialize SonarCloud API
+    # Initialize SonarCloud API and validate token
     sonar_api = SonarCloudAPI(token)
+    is_valid, message = sonar_api.validate_token()
+    
+    if not is_valid:
+        st.error(message)
+        return
+    
+    st.success(f"Token validated successfully. Using organization: {sonar_api.organization}")
     
     # Fetch projects
     projects = sonar_api.get_projects()
     if not projects:
+        st.warning("No projects found in the organization")
         return
 
     # Project selection
@@ -37,20 +45,21 @@ def main():
     if selected_project:
         # Fetch and store metrics
         metrics = sonar_api.get_project_metrics(selected_project)
-        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-        MetricsProcessor.store_metrics(selected_project, project_names[selected_project], metrics_dict)
+        if metrics:
+            metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+            MetricsProcessor.store_metrics(selected_project, project_names[selected_project], metrics_dict)
 
-        # Display current metrics
-        display_current_metrics(metrics_dict)
+            # Display current metrics
+            display_current_metrics(metrics_dict)
 
-        # Display historical data
-        st.subheader("Historical Data")
-        historical_data = MetricsProcessor.get_historical_data(selected_project)
-        plot_metrics_history(historical_data)
+            # Display historical data
+            st.subheader("Historical Data")
+            historical_data = MetricsProcessor.get_historical_data(selected_project)
+            plot_metrics_history(historical_data)
 
-        # Download report
-        if historical_data:
-            create_download_report(historical_data)
+            # Download report
+            if historical_data:
+                create_download_report(historical_data)
 
 if __name__ == "__main__":
     main()

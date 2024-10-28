@@ -11,3 +11,4 @@ DB_CONFIG = {
 
 # SonarCloud API configuration
 SONARCLOUD_API_URL = "https://sonarcloud.io/api"
+DEFAULT_ORGANIZATION = "default-organization"  # Will be overridden by user input
