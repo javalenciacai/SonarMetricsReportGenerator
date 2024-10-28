@@ -56,6 +56,8 @@ PGPORT=your_port
 SONARCLOUD_TOKEN=your_token
 
 # SMTP Configuration
+SMTP_SERVER=smtp.gmail.com    # SMTP server address (default: smtp.gmail.com)
+SMTP_PORT=587                 # SMTP port (default: 587)
 SMTP_USERNAME=your_email
 SMTP_PASSWORD=your_password
 ```
