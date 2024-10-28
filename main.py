@@ -50,13 +50,8 @@ def setup_automated_reports(sonar_api, project_key, email_recipients):
                         recipients=email_recipients
                     )
 
-        # Schedule daily report at 1 AM
         scheduler.schedule_daily_report(generate_daily_report, hour=1, minute=0)
-        
-        # Schedule weekly report for Monday at 2 AM
         scheduler.schedule_weekly_report(generate_weekly_report, day_of_week=0, hour=2, minute=0)
-        
-        # Schedule metric change checks every 4 hours
         scheduler.schedule_metric_checks(check_metric_changes, interval_hours=4)
         
         return True
@@ -64,9 +59,32 @@ def setup_automated_reports(sonar_api, project_key, email_recipients):
         st.error(f"Error setting up automated reports: {str(e)}")
         return False
 
+def setup_sidebar():
+    """Configure and display sidebar content"""
+    with st.sidebar:
+        st.image("https://www.sonarqube.org/logos/index/sonarcloud-logo.png", width=200)
+        st.markdown("---")
+        
+        st.markdown("""
+            <style>
+            .sidebar-info {
+                padding: 1rem;
+                background-color: #f8f9fa;
+                border-radius: 0.5rem;
+                margin-bottom: 1rem;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        return st.sidebar
+
 def main():
-    st.set_page_config(page_title="SonarCloud Metrics Dashboard", layout="wide")
-    st.title("SonarCloud Metrics Dashboard")
+    st.set_page_config(
+        page_title="SonarCloud Metrics Dashboard",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 
     # Initialize database
     initialize_database()
@@ -78,10 +96,13 @@ def main():
     if not scheduler.scheduler.running:
         scheduler.start()
 
+    # Setup sidebar
+    sidebar = setup_sidebar()
+    
     # SonarCloud token input
     token = os.getenv('SONARCLOUD_TOKEN') or st.text_input("Enter SonarCloud Token", type="password")
     if not token:
-        st.warning("Please enter your SonarCloud token to continue")
+        st.warning("⚠️ Please enter your SonarCloud token to continue")
         return
 
     # Initialize SonarCloud API and validate token
@@ -96,7 +117,7 @@ def main():
     report_generator = ReportGenerator(sonar_api)
     notification_service = NotificationService(report_generator)
     
-    st.success(f"Token validated successfully. Using organization: {sonar_api.organization}")
+    st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
     
     # Fetch projects
     projects = sonar_api.get_projects()
@@ -104,56 +125,59 @@ def main():
         st.warning("No projects found in the organization")
         return
 
-    # Project selection
-    project_names = {project['key']: project['name'] for project in projects}
-    selected_project = st.selectbox(
-        "Select Project",
-        options=list(project_names.keys()),
-        format_func=lambda x: project_names[x]
-    )
+    # Project selection in sidebar
+    with sidebar:
+        st.markdown("### 🎯 Project Selection")
+        project_names = {project['key']: project['name'] for project in projects}
+        selected_project = st.selectbox(
+            "Select Project",
+            options=list(project_names.keys()),
+            format_func=lambda x: project_names[x]
+        )
 
-    if selected_project:
+        st.markdown("---")
+
         # Automated reporting setup section
-        st.sidebar.subheader("Automated Reports & Notifications")
+        st.markdown("### ⚙️ Automation Setup")
         
         # Email configuration status
         try:
             smtp_status, smtp_message = report_generator.verify_smtp_connection()
             if smtp_status:
-                st.sidebar.success("✉️ Email Configuration: Connected")
+                st.success("✉️ Email Configuration: Connected")
             else:
-                st.sidebar.error(f"✉️ Email Configuration: {smtp_message}")
+                st.error(f"✉️ Email Configuration: {smtp_message}")
         except Exception as e:
-            st.sidebar.error(f"✉️ Email Configuration Error: {str(e)}")
+            st.error(f"✉️ Email Configuration Error: {str(e)}")
         
-        email_recipients = st.sidebar.text_input(
-            "Email Recipients (comma-separated)",
-            help="Enter email addresses to receive reports and notifications"
+        email_recipients = st.text_input(
+            "📧 Email Recipients",
+            help="Enter email addresses (comma-separated) to receive reports and notifications"
         )
 
         if email_recipients:
-            if st.sidebar.button("Setup Automated Reports & Notifications"):
+            if st.button("🔄 Setup Automation"):
                 recipients_list = [email.strip() for email in email_recipients.split(",")]
                 
-                # Test report generation and sending
-                with st.spinner("Testing report generation and email sending..."):
+                with st.spinner("⏳ Testing report generation and email sending..."):
                     report_data, gen_message = report_generator.generate_project_report(selected_project, 'daily')
                     if report_data:
                         success, send_message = report_generator.send_report_email(report_data, recipients_list)
                         if success:
                             if setup_automated_reports(sonar_api, selected_project, recipients_list):
-                                st.sidebar.success(f"""
+                                st.success("""
                                     ✅ Setup successful!
-                                    📧 Test email sent to: {', '.join(recipients_list)}
-                                    📅 Daily reports: 1:00 AM
-                                    📅 Weekly reports: Monday 2:00 AM
-                                    🔔 Metric change notifications: Every 4 hours
+                                    - 📧 Test email sent
+                                    - 📅 Daily reports: 1:00 AM
+                                    - 📅 Weekly reports: Monday 2:00 AM
+                                    - 🔔 Change notifications: Every 4 hours
                                 """)
                         else:
-                            st.sidebar.error(f"❌ Failed to send test email: {send_message}")
+                            st.error(f"❌ Failed to send test email: {send_message}")
                     else:
-                        st.sidebar.error(f"❌ Failed to generate test report: {gen_message}")
+                        st.error(f"❌ Failed to generate test report: {gen_message}")
 
+    if selected_project:
         # Fetch and store metrics
         metrics = sonar_api.get_project_metrics(selected_project)
         if metrics:
@@ -161,24 +185,21 @@ def main():
             MetricsProcessor.store_metrics(selected_project, project_names[selected_project], metrics_dict)
 
             # Create tabs for different views
-            tab1, tab2 = st.tabs(["Current Status", "Trend Analysis"])
+            tab1, tab2 = st.tabs(["📊 Executive Dashboard", "📈 Trend Analysis"])
             
             with tab1:
-                # Display current metrics with status indicators
                 display_current_metrics(metrics_dict)
                 
-                # Display historical data visualization
-                st.subheader("Historical Data")
+                st.markdown("### 📋 Historical Overview")
                 historical_data = MetricsProcessor.get_historical_data(selected_project)
                 plot_metrics_history(historical_data)
             
             with tab2:
-                # Display metric trends and comparisons
                 if historical_data:
                     display_metric_trends(historical_data)
                     create_download_report(historical_data)
                 else:
-                    st.warning("No historical data available for trend analysis")
+                    st.warning("⚠️ No historical data available for trend analysis")
 
 if __name__ == "__main__":
     main()
