@@ -62,14 +62,19 @@ def setup_automated_reports(sonar_api, project_key, email_recipients):
 def setup_sidebar():
     """Configure and display sidebar content"""
     with st.sidebar:
-        st.image("https://www.sonarqube.org/logos/index/sonarcloud-logo.png", width=200)
+        # Use fixed width for the logo to ensure proper display
+        st.markdown("""
+            <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
+                <img src="static/sonarcloud-logo.svg" alt="SonarCloud Logo" style="width: 180px; height: auto;">
+            </div>
+        """, unsafe_allow_html=True)
         st.markdown("---")
         
         st.markdown("""
             <style>
             .sidebar-info {
                 padding: 1rem;
-                background-color: #f8f9fa;
+                background-color: #1A1F25;
                 border-radius: 0.5rem;
                 margin-bottom: 1rem;
             }
