@@ -21,6 +21,14 @@ def create_metric_card(title, value, status, help_text):
     if help_text:
         st.markdown(f'<small style="color: #A0AEC0;">{help_text}</small>', unsafe_allow_html=True)
 
+def format_code_lines(lines):
+    """Format lines of code with K/M suffixes"""
+    if lines >= 1_000_000:
+        return f"{lines/1_000_000:.1f}M"
+    elif lines >= 1_000:
+        return f"{lines/1_000:.1f}K"
+    return str(int(lines))
+
 def display_multi_project_metrics(projects_data):
     """Display metrics for multiple projects in a comparative view"""
     st.markdown("""
@@ -78,6 +86,10 @@ def display_multi_project_metrics(projects_data):
                 <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
                 <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
                 <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-title">Lines of Code</div>
+                        <div class="metric-value">{format_code_lines(row['ncloc'])} 📏</div>
+                    </div>
                     <div class="metric-item">
                         <div class="metric-title">Bugs</div>
                         <div class="metric-value">{int(row['bugs'])} 🐛</div>
@@ -151,6 +163,16 @@ def display_current_metrics(metrics_data):
     col1, col2, col3 = st.columns(3)
     
     with col1:
+        st.markdown('<h4 style="color: #FAFAFA;">📏 Project Size</h4>', unsafe_allow_html=True)
+        ncloc = int(metrics_data.get('ncloc', 0))
+        create_metric_card(
+            "Lines of Code",
+            format_code_lines(ncloc),
+            "📏",
+            "Total number of lines of code (excluding comments and blank lines)"
+        )
+
+    with col2:
         st.markdown('<h4 style="color: #FAFAFA;">🛡️ Security & Reliability</h4>', unsafe_allow_html=True)
         bugs = int(metrics_data.get('bugs', 0))
         vulnerabilities = int(metrics_data.get('vulnerabilities', 0))
@@ -167,10 +189,13 @@ def display_current_metrics(metrics_data):
             "Number of security vulnerabilities detected"
         )
     
-    with col2:
+    with col3:
         st.markdown('<h4 style="color: #FAFAFA;">🔍 Code Quality</h4>', unsafe_allow_html=True)
         code_smells = int(metrics_data.get('code_smells', 0))
         duplications = f"{metrics_data.get('duplicated_lines_density', 0):.1f}%"
+        coverage = f"{metrics_data.get('coverage', 0):.1f}%"
+        coverage_status = metric_status.get('coverage', 'neutral')
+        
         create_metric_card(
             "Code Smells",
             code_smells,
@@ -178,27 +203,22 @@ def display_current_metrics(metrics_data):
             "Maintainability issues that might lead to bugs"
         )
         create_metric_card(
-            "Code Duplication",
-            duplications,
-            "📝",
-            "Percentage of duplicated lines in the codebase"
-        )
-    
-    with col3:
-        st.markdown('<h4 style="color: #FAFAFA;">📊 Test Coverage</h4>', unsafe_allow_html=True)
-        coverage = f"{metrics_data.get('coverage', 0):.1f}%"
-        coverage_status = metric_status.get('coverage', 'neutral')
-        create_metric_card(
             "Test Coverage",
             coverage,
             "🟢" if coverage_status == 'good' else "🟡" if coverage_status == 'warning' else "🔴",
             "Percentage of code covered by unit tests"
         )
+        create_metric_card(
+            "Code Duplication",
+            duplications,
+            "📝",
+            "Percentage of duplicated lines in the codebase"
+        )
 
 def display_metric_trends(historical_data):
     st.markdown('<h3 style="color: #FAFAFA;">📈 Trend Analysis</h3>', unsafe_allow_html=True)
     
-    metrics = ['bugs', 'vulnerabilities', 'code_smells', 'coverage', 'duplicated_lines_density']
+    metrics = ['bugs', 'vulnerabilities', 'code_smells', 'coverage', 'duplicated_lines_density', 'ncloc']
     analyzer = MetricAnalyzer()
     
     for metric in metrics:
@@ -206,29 +226,39 @@ def display_metric_trends(historical_data):
         period_comparison = analyzer.calculate_period_comparison(historical_data, metric)
         
         if trend_data and period_comparison:
-            with st.expander(f"{metric.replace('_', ' ').title()} Analysis", expanded=True):
+            metric_display_name = "Lines of Code" if metric == "ncloc" else metric.replace('_', ' ').title()
+            with st.expander(f"{metric_display_name} Analysis", expanded=True):
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     trend_emoji = "📈" if trend_data['trend'] == 'increasing' else "📉" if trend_data['trend'] == 'decreasing' else "➡️"
+                    current_value = format_code_lines(trend_data['current_value']) if metric == 'ncloc' else f"{trend_data['current_value']:.2f}"
+                    avg_value = format_code_lines(trend_data['avg_value']) if metric == 'ncloc' else f"{trend_data['avg_value']:.2f}"
+                    
                     st.markdown(f"""
                         <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
                             <div style='font-size: 0.9rem; color: #A0AEC0;'>Current Trend</div>
                             <div style='font-size: 1.2rem; margin: 0.5rem 0; color: #FAFAFA;'>{trend_emoji} {trend_data['trend'].title()}</div>
-                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current value: {trend_data['current_value']:.2f}</div>
-                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Average value: {trend_data['avg_value']:.2f}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current value: {current_value}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Average value: {avg_value}</div>
                         </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
                     change = period_comparison['change_percentage']
-                    change_color = "#48BB78" if period_comparison['improved'] else "#F56565"
+                    # For ncloc, increasing is generally positive
+                    is_improvement = period_comparison['improved'] if metric != 'ncloc' else change > 0
+                    change_color = "#48BB78" if is_improvement else "#F56565"
+                    
+                    current_period = format_code_lines(period_comparison['current_period_avg']) if metric == 'ncloc' else f"{period_comparison['current_period_avg']:.2f}"
+                    previous_period = format_code_lines(period_comparison['previous_period_avg']) if metric == 'ncloc' else f"{period_comparison['previous_period_avg']:.2f}"
+                    
                     st.markdown(f"""
                         <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
                             <div style='font-size: 0.9rem; color: #A0AEC0;'>7-Day Comparison</div>
                             <div style='font-size: 1.2rem; margin: 0.5rem 0; color: {change_color};'>{change:+.1f}%</div>
-                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current period avg: {period_comparison['current_period_avg']:.2f}</div>
-                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Previous period avg: {period_comparison['previous_period_avg']:.2f}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current period avg: {current_period}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Previous period avg: {previous_period}</div>
                         </div>
                     """, unsafe_allow_html=True)
 

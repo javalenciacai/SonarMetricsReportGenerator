@@ -6,6 +6,14 @@ from datetime import datetime, timedelta
 import numpy as np
 from services.metric_analyzer import MetricAnalyzer
 
+def format_code_lines(lines):
+    """Format lines of code with K/M suffixes"""
+    if lines >= 1_000_000:
+        return f"{lines/1_000_000:.1f}M"
+    elif lines >= 1_000:
+        return f"{lines/1_000:.1f}K"
+    return str(int(lines))
+
 def calculate_moving_averages(df, metric_columns, windows=[7, 30]):
     """Calculate moving averages for specified metrics"""
     result_df = df.copy()
@@ -38,13 +46,14 @@ def plot_metrics_history(historical_data):
     # Define metric groups
     issue_metrics = ['bugs', 'vulnerabilities', 'code_smells']
     quality_metrics = ['coverage', 'duplicated_lines_density']
+    size_metrics = ['ncloc']
     
     try:
         # Calculate moving averages
-        ma_df = calculate_moving_averages(df, issue_metrics + quality_metrics)
+        ma_df = calculate_moving_averages(df, issue_metrics + quality_metrics + size_metrics)
         
         # Calculate trend changes
-        changes = calculate_percentage_changes(df, issue_metrics + quality_metrics)
+        changes = calculate_percentage_changes(df, issue_metrics + quality_metrics + size_metrics)
 
         # Dark mode compatible colors
         colors = {
@@ -52,7 +61,8 @@ def plot_metrics_history(historical_data):
             'vulnerabilities': '#ED8936',  # Orange
             'code_smells': '#9F7AEA',  # Purple
             'coverage': '#48BB78',  # Green
-            'duplicated_lines_density': '#4299E1'  # Blue
+            'duplicated_lines_density': '#4299E1',  # Blue
+            'ncloc': '#805AD5'  # Purple
         }
 
         plot_template = {
@@ -68,6 +78,40 @@ def plot_metrics_history(historical_data):
                 'linecolor': '#2D3748'
             }
         }
+
+        # Lines of Code Plot
+        fig_size = go.Figure()
+        
+        fig_size.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=df['ncloc'],
+            name='Lines of Code',
+            line=dict(color=colors['ncloc'])
+        ))
+        fig_size.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=ma_df['ncloc_ma_7d'],
+            name='Lines of Code (7d MA)',
+            line=dict(color=colors['ncloc'], dash='dot')
+        ))
+
+        fig_size.update_layout(
+            title='Project Size Trend Analysis',
+            xaxis_title='Date',
+            yaxis_title='Lines of Code',
+            hovermode='x unified',
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor='rgba(26, 31, 37, 0.8)',
+                bordercolor='#2D3748'
+            ),
+            **plot_template
+        )
+        st.plotly_chart(fig_size, use_container_width=True)
 
         # Issues Plot
         fig1 = go.Figure()
@@ -141,9 +185,21 @@ def plot_metrics_history(historical_data):
 
         # Display trend summary
         st.markdown('<h3 style="color: #FAFAFA;">Trend Summary</h3>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
+            st.markdown('<p style="color: #FAFAFA;"><strong>Project Size Changes (7 days)</strong></p>', unsafe_allow_html=True)
+            change = changes.get('ncloc_7d_change')
+            if change is not None:
+                emoji = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+                color = "#48BB78" if change > 0 else "#F56565" if change < 0 else "#A0AEC0"
+                st.markdown(
+                    f'<p style="color: #FAFAFA;">Lines of Code: '
+                    f'<span style="color: {color}">{change:+.1f}% {emoji}</span></p>',
+                    unsafe_allow_html=True
+                )
+
+        with col2:
             st.markdown('<p style="color: #FAFAFA;"><strong>Issue Metrics Changes (7 days)</strong></p>', unsafe_allow_html=True)
             for metric in issue_metrics:
                 change = changes.get(f'{metric}_7d_change')
@@ -156,7 +212,7 @@ def plot_metrics_history(historical_data):
                         unsafe_allow_html=True
                     )
 
-        with col2:
+        with col3:
             st.markdown('<p style="color: #FAFAFA;"><strong>Quality Metrics Changes (7 days)</strong></p>', unsafe_allow_html=True)
             for metric in quality_metrics:
                 change = changes.get(f'{metric}_7d_change')
@@ -206,10 +262,29 @@ def plot_multi_project_comparison(projects_data):
         }
     }
 
-    # Create quality metrics comparison
+    # Project Size Comparison
+    st.markdown("### 📏 Project Size Comparison")
+    
+    fig_size = go.Figure()
+    fig_size.add_trace(go.Bar(
+        x=df['project_name'],
+        y=df['ncloc'],
+        name='Lines of Code',
+        marker_color='#805AD5',
+        text=[format_code_lines(val) for val in df['ncloc']],
+        textposition='outside'
+    ))
+    fig_size.update_layout(
+        title='Lines of Code by Project',
+        xaxis_title='Project',
+        yaxis_title='Lines of Code',
+        **plot_template
+    )
+    st.plotly_chart(fig_size, use_container_width=True)
+
+    # Quality Score Bar Chart
     st.markdown("### 📊 Quality Metrics Comparison")
     
-    # Quality Score Bar Chart
     fig1 = go.Figure()
     fig1.add_trace(go.Bar(
         x=df['project_name'],
@@ -289,9 +364,10 @@ def plot_multi_project_comparison(projects_data):
     # Project Rankings
     st.markdown("### 🏆 Project Rankings")
     
-    # Create rankings table
+    # Create rankings table with size included
     rankings = pd.DataFrame({
         'Project': df['project_name'],
+        'Lines of Code': df['ncloc'].apply(format_code_lines),
         'Quality Score': df.apply(lambda row: analyzer.calculate_quality_score(row), axis=1),
         'Total Issues': df['bugs'] + df['vulnerabilities'] + df['code_smells'],
         'Coverage': df['coverage'],
