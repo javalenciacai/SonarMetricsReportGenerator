@@ -14,22 +14,23 @@ class SonarCloudAPI:
         self.organization = None
         self.api_version = None
         self.debug_mode = True  # Enable debug mode for troubleshooting
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
 
     def _log_request(self, method, url, params=None, response=None):
         """Log API request details for debugging"""
         if self.debug_mode:
-            st.write("Debug Information:")
-            st.write(f"API Request: {method} {url}")
-            st.write(f"Parameters: {params}")
+            self.logger.debug(f"API Request: {method} {url}")
+            self.logger.debug(f"Parameters: {params}")
             if response:
-                st.write(f"Status Code: {response.status_code}")
+                self.logger.debug(f"Status Code: {response.status_code}")
                 try:
-                    st.write(f"Response: {response.json()}")
+                    self.logger.debug(f"Response: {response.json()}")
                 except:
                     if hasattr(response, 'text'):
-                        st.write(f"Raw Response: {response.text}")
+                        self.logger.debug(f"Raw Response: {response.text}")
                     else:
-                        st.write("No response content available")
+                        self.logger.debug("No response content available")
 
     def _check_api_version(self):
         """Check SonarCloud API version compatibility"""
@@ -43,8 +44,7 @@ class SonarCloudAPI:
         except requests.exceptions.RequestException as e:
             error_msg = f"Error checking API version: {str(e)}"
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                error_msg += f"\nAPI Response: {e.response.text}"
-            st.error(error_msg)
+                self.logger.error(f"{error_msg}\nAPI Response: {e.response.text}")
             return False
 
     def validate_token(self):
@@ -69,13 +69,13 @@ class SonarCloudAPI:
                 return False, "No organizations found for this token"
             
             self.organization = orgs[0]['key']
-            return True, f"Token validated successfully. API Version: {self.api_version}"
+            return True, "Token validated successfully."
             
         except requests.exceptions.RequestException as e:
-            error_message = str(e)
+            error_message = "Failed to validate token. Please check your connection and try again."
+            self.logger.error(f"Token validation error: {str(e)}")
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                error_message += f"\nAPI Response: {e.response.text}"
-            st.error(f"Error validating token: {error_message}")
+                self.logger.error(f"API Response: {e.response.text}")
             return False, error_message
 
     def get_projects(self):
@@ -84,7 +84,6 @@ class SonarCloudAPI:
             st.error("Organization not set. Please validate your token first.")
             return []
         
-        # Fixed URL by removing duplicate 'api'
         url = f"{SONARCLOUD_API_URL}/projects/search"
         params = {
             'organization': self.organization,
@@ -100,23 +99,23 @@ class SonarCloudAPI:
             data = response.json()
             
             if 'components' not in data:
-                error_msg = f"Unexpected API response format: {data}"
-                st.error(error_msg)
-                self.logger.error(error_msg)
+                error_msg = "Unexpected API response format"
+                self.logger.error(f"{error_msg}: {data}")
                 return []
                 
             return data['components']
             
         except requests.exceptions.RequestException as e:
-            error_message = str(e)
+            error_message = "Failed to fetch projects"
+            self.logger.error(f"{error_message}: {str(e)}")
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                error_message += f"\nAPI Response: {e.response.text}"
-            st.error(f"Error fetching projects: {error_message}")
+                self.logger.error(f"API Response: {e.response.text}")
+            st.error(error_message)
             return []
         except (KeyError, json.JSONDecodeError) as e:
-            error_msg = f"Error parsing project data: {str(e)}"
+            error_msg = "Error parsing project data"
+            self.logger.error(f"{error_msg}: {str(e)}")
             st.error(error_msg)
-            self.logger.error(error_msg)
             return []
 
     def get_project_metrics(self, project_key):
@@ -154,22 +153,22 @@ class SonarCloudAPI:
             
             if not component_data:
                 error_msg = f"No data found for project {project_key}"
-                st.error(error_msg)
                 self.logger.error(error_msg)
                 return []
                 
             return component_data.get('measures', [])
             
         except requests.exceptions.RequestException as e:
-            error_message = str(e)
+            error_message = "Failed to fetch metrics"
+            self.logger.error(f"{error_message}: {str(e)}")
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                error_message += f"\nAPI Response: {e.response.text}"
-            st.error(f"Error fetching metrics: {error_message}")
+                self.logger.error(f"API Response: {e.response.text}")
+            st.error(error_message)
             return []
         except (KeyError, json.JSONDecodeError) as e:
-            error_msg = f"Error parsing metric data: {str(e)}"
+            error_msg = "Error parsing metric data"
+            self.logger.error(f"{error_msg}: {str(e)}")
             st.error(error_msg)
-            self.logger.error(error_msg)
             return []
 
     def get_project_branches(self, project_key):
@@ -188,8 +187,9 @@ class SonarCloudAPI:
             return response.json().get('branches', [])
             
         except requests.exceptions.RequestException as e:
-            error_message = str(e)
+            error_message = "Failed to fetch project branches"
+            self.logger.error(f"{error_message}: {str(e)}")
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                error_message += f"\nAPI Response: {e.response.text}"
-            st.error(f"Error fetching project branches: {error_message}")
+                self.logger.error(f"API Response: {e.response.text}")
+            st.error(error_message)
             return []
