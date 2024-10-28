@@ -1,7 +1,7 @@
 import streamlit as st
 from services.sonarcloud import SonarCloudAPI
 from services.metrics_processor import MetricsProcessor
-from components.metrics_display import display_current_metrics, create_download_report
+from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends
 from components.visualizations import plot_metrics_history
 from database.schema import initialize_database
 
@@ -49,17 +49,25 @@ def main():
             metrics_dict = {m['metric']: float(m['value']) for m in metrics}
             MetricsProcessor.store_metrics(selected_project, project_names[selected_project], metrics_dict)
 
-            # Display current metrics
-            display_current_metrics(metrics_dict)
-
-            # Display historical data
-            st.subheader("Historical Data")
-            historical_data = MetricsProcessor.get_historical_data(selected_project)
-            plot_metrics_history(historical_data)
-
-            # Download report
-            if historical_data:
-                create_download_report(historical_data)
+            # Create tabs for different views
+            tab1, tab2 = st.tabs(["Current Status", "Trend Analysis"])
+            
+            with tab1:
+                # Display current metrics with status indicators
+                display_current_metrics(metrics_dict)
+                
+                # Display historical data visualization
+                st.subheader("Historical Data")
+                historical_data = MetricsProcessor.get_historical_data(selected_project)
+                plot_metrics_history(historical_data)
+            
+            with tab2:
+                # Display metric trends and comparisons
+                if historical_data:
+                    display_metric_trends(historical_data)
+                    create_download_report(historical_data)
+                else:
+                    st.warning("No historical data available for trend analysis")
 
 if __name__ == "__main__":
     main()
