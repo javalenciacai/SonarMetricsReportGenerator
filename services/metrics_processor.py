@@ -35,7 +35,8 @@ class MetricsProcessor:
     @staticmethod
     def get_historical_data(repo_key):
         query = """
-        SELECT m.*
+        SELECT m.bugs, m.vulnerabilities, m.code_smells, m.coverage, 
+               m.duplicated_lines_density, m.timestamp
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
         WHERE r.repo_key = %s
