@@ -41,7 +41,10 @@ class SonarCloudAPI:
             self.api_version = response.text.strip()
             return True
         except requests.exceptions.RequestException as e:
-            st.error(f"Error checking API version: {str(e)}")
+            error_msg = f"Error checking API version: {str(e)}"
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                error_msg += f"\nAPI Response: {e.response.text}"
+            st.error(error_msg)
             return False
 
     def validate_token(self):
@@ -81,7 +84,8 @@ class SonarCloudAPI:
             st.error("Organization not set. Please validate your token first.")
             return []
         
-        url = f"{SONARCLOUD_API_URL}/api/projects/search"
+        # Fixed URL by removing duplicate 'api'
+        url = f"{SONARCLOUD_API_URL}/projects/search"
         params = {
             'organization': self.organization,
             'ps': 100,  # Number of projects per page
@@ -96,7 +100,9 @@ class SonarCloudAPI:
             data = response.json()
             
             if 'components' not in data:
-                st.error(f"Unexpected API response format: {data}")
+                error_msg = f"Unexpected API response format: {data}"
+                st.error(error_msg)
+                self.logger.error(error_msg)
                 return []
                 
             return data['components']
@@ -104,11 +110,13 @@ class SonarCloudAPI:
         except requests.exceptions.RequestException as e:
             error_message = str(e)
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                st.error(f"API Response: {e.response.text}")
+                error_message += f"\nAPI Response: {e.response.text}"
             st.error(f"Error fetching projects: {error_message}")
             return []
         except (KeyError, json.JSONDecodeError) as e:
-            st.error(f"Error parsing project data: {str(e)}")
+            error_msg = f"Error parsing project data: {str(e)}"
+            st.error(error_msg)
+            self.logger.error(error_msg)
             return []
 
     def get_project_metrics(self, project_key):
@@ -145,7 +153,9 @@ class SonarCloudAPI:
             component_data = response.json().get('component', {})
             
             if not component_data:
-                st.error(f"No data found for project {project_key}")
+                error_msg = f"No data found for project {project_key}"
+                st.error(error_msg)
+                self.logger.error(error_msg)
                 return []
                 
             return component_data.get('measures', [])
@@ -153,11 +163,13 @@ class SonarCloudAPI:
         except requests.exceptions.RequestException as e:
             error_message = str(e)
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                st.error(f"API Response: {e.response.text}")
+                error_message += f"\nAPI Response: {e.response.text}"
             st.error(f"Error fetching metrics: {error_message}")
             return []
         except (KeyError, json.JSONDecodeError) as e:
-            st.error(f"Error parsing metric data: {str(e)}")
+            error_msg = f"Error parsing metric data: {str(e)}"
+            st.error(error_msg)
+            self.logger.error(error_msg)
             return []
 
     def get_project_branches(self, project_key):
@@ -178,6 +190,6 @@ class SonarCloudAPI:
         except requests.exceptions.RequestException as e:
             error_message = str(e)
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                st.error(f"API Response: {e.response.text}")
+                error_message += f"\nAPI Response: {e.response.text}"
             st.error(f"Error fetching project branches: {error_message}")
             return []
