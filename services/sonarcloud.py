@@ -133,7 +133,8 @@ class SonarCloudAPI:
             'ncloc',
             'reliability_rating',
             'security_rating',
-            'sqale_rating'
+            'sqale_rating',
+            'sqale_index'  # Added technical debt metric
         ]
         
         url = f"{SONARCLOUD_API_URL}/measures/component"

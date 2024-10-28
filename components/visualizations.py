@@ -5,14 +5,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 import numpy as np
 from services.metric_analyzer import MetricAnalyzer
-
-def format_code_lines(lines):
-    """Format lines of code with K/M suffixes"""
-    if lines >= 1_000_000:
-        return f"{lines/1_000_000:.1f}M"
-    elif lines >= 1_000:
-        return f"{lines/1_000:.1f}K"
-    return str(int(lines))
+from utils.helpers import format_code_lines, format_technical_debt
 
 def calculate_moving_averages(df, metric_columns, windows=[7, 30]):
     """Calculate moving averages for specified metrics"""
@@ -47,13 +40,14 @@ def plot_metrics_history(historical_data):
     issue_metrics = ['bugs', 'vulnerabilities', 'code_smells']
     quality_metrics = ['coverage', 'duplicated_lines_density']
     size_metrics = ['ncloc']
+    debt_metrics = ['sqale_index']
     
     try:
         # Calculate moving averages
-        ma_df = calculate_moving_averages(df, issue_metrics + quality_metrics + size_metrics)
+        ma_df = calculate_moving_averages(df, issue_metrics + quality_metrics + size_metrics + debt_metrics)
         
         # Calculate trend changes
-        changes = calculate_percentage_changes(df, issue_metrics + quality_metrics + size_metrics)
+        changes = calculate_percentage_changes(df, issue_metrics + quality_metrics + size_metrics + debt_metrics)
 
         # Dark mode compatible colors
         colors = {
@@ -62,7 +56,8 @@ def plot_metrics_history(historical_data):
             'code_smells': '#9F7AEA',  # Purple
             'coverage': '#48BB78',  # Green
             'duplicated_lines_density': '#4299E1',  # Blue
-            'ncloc': '#805AD5'  # Purple
+            'ncloc': '#805AD5',  # Purple
+            'sqale_index': '#F6AD55'  # Orange
         }
 
         plot_template = {
@@ -79,20 +74,24 @@ def plot_metrics_history(historical_data):
             }
         }
 
-        # Lines of Code Plot
+        # Project Size Plot
         fig_size = go.Figure()
         
         fig_size.add_trace(go.Scatter(
             x=df['timestamp'],
             y=df['ncloc'],
             name='Lines of Code',
-            line=dict(color=colors['ncloc'])
+            line=dict(color=colors['ncloc']),
+            customdata=[[format_code_lines(val)] for val in df['ncloc']],
+            hovertemplate='Lines of Code: %{customdata[0]}<br>Date: %{x}'
         ))
         fig_size.add_trace(go.Scatter(
             x=df['timestamp'],
             y=ma_df['ncloc_ma_7d'],
             name='Lines of Code (7d MA)',
-            line=dict(color=colors['ncloc'], dash='dot')
+            line=dict(color=colors['ncloc'], dash='dot'),
+            customdata=[[format_code_lines(val)] for val in ma_df['ncloc_ma_7d']],
+            hovertemplate='7d Moving Average: %{customdata[0]}<br>Date: %{x}'
         ))
 
         fig_size.update_layout(
@@ -112,6 +111,44 @@ def plot_metrics_history(historical_data):
             **plot_template
         )
         st.plotly_chart(fig_size, use_container_width=True)
+
+        # Technical Debt Plot
+        fig_debt = go.Figure()
+        
+        fig_debt.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=df['sqale_index'],
+            name='Technical Debt',
+            line=dict(color=colors['sqale_index']),
+            customdata=[[format_technical_debt(val)] for val in df['sqale_index']],
+            hovertemplate='Technical Debt: %{customdata[0]}<br>Date: %{x}'
+        ))
+        fig_debt.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=ma_df['sqale_index_ma_7d'],
+            name='Technical Debt (7d MA)',
+            line=dict(color=colors['sqale_index'], dash='dot'),
+            customdata=[[format_technical_debt(val)] for val in ma_df['sqale_index_ma_7d']],
+            hovertemplate='7d Moving Average: %{customdata[0]}<br>Date: %{x}'
+        ))
+
+        fig_debt.update_layout(
+            title='Technical Debt Trend Analysis',
+            xaxis_title='Date',
+            yaxis_title='Technical Debt',
+            hovermode='x unified',
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor='rgba(26, 31, 37, 0.8)',
+                bordercolor='#2D3748'
+            ),
+            **plot_template
+        )
+        st.plotly_chart(fig_debt, use_container_width=True)
 
         # Issues Plot
         fig1 = go.Figure()
@@ -188,19 +225,21 @@ def plot_metrics_history(historical_data):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown('<p style="color: #FAFAFA;"><strong>Project Size Changes (7 days)</strong></p>', unsafe_allow_html=True)
-            change = changes.get('ncloc_7d_change')
-            if change is not None:
-                emoji = "📈" if change > 0 else "📉" if change < 0 else "➡️"
-                color = "#48BB78" if change > 0 else "#F56565" if change < 0 else "#A0AEC0"
-                st.markdown(
-                    f'<p style="color: #FAFAFA;">Lines of Code: '
-                    f'<span style="color: {color}">{change:+.1f}% {emoji}</span></p>',
-                    unsafe_allow_html=True
-                )
+            st.markdown('<p style="color: #FAFAFA;"><strong>Project Metrics (7 days)</strong></p>', unsafe_allow_html=True)
+            for metric in ['ncloc', 'sqale_index']:
+                change = changes.get(f'{metric}_7d_change')
+                if change is not None:
+                    metric_name = 'Lines of Code' if metric == 'ncloc' else 'Technical Debt'
+                    emoji = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+                    color = "#48BB78" if (metric == 'ncloc' and change > 0) or (metric == 'sqale_index' and change < 0) else "#F56565"
+                    st.markdown(
+                        f'<p style="color: #FAFAFA;">{metric_name}: '
+                        f'<span style="color: {color}">{change:+.1f}% {emoji}</span></p>',
+                        unsafe_allow_html=True
+                    )
 
         with col2:
-            st.markdown('<p style="color: #FAFAFA;"><strong>Issue Metrics Changes (7 days)</strong></p>', unsafe_allow_html=True)
+            st.markdown('<p style="color: #FAFAFA;"><strong>Issue Metrics (7 days)</strong></p>', unsafe_allow_html=True)
             for metric in issue_metrics:
                 change = changes.get(f'{metric}_7d_change')
                 if change is not None:
@@ -213,7 +252,7 @@ def plot_metrics_history(historical_data):
                     )
 
         with col3:
-            st.markdown('<p style="color: #FAFAFA;"><strong>Quality Metrics Changes (7 days)</strong></p>', unsafe_allow_html=True)
+            st.markdown('<p style="color: #FAFAFA;"><strong>Quality Metrics (7 days)</strong></p>', unsafe_allow_html=True)
             for metric in quality_metrics:
                 change = changes.get(f'{metric}_7d_change')
                 if change is not None:
@@ -262,17 +301,18 @@ def plot_multi_project_comparison(projects_data):
         }
     }
 
-    # Project Size Comparison
-    st.markdown("### 📏 Project Size Comparison")
+    # Project Size & Debt Comparison
+    st.markdown("### 📏 Project Size & Technical Debt")
     
+    # Size comparison
     fig_size = go.Figure()
     fig_size.add_trace(go.Bar(
         x=df['project_name'],
         y=df['ncloc'],
         name='Lines of Code',
         marker_color='#805AD5',
-        text=[format_code_lines(val) for val in df['ncloc']],
-        textposition='outside'
+        customdata=[[format_code_lines(val)] for val in df['ncloc']],
+        hovertemplate='Lines of Code: %{customdata[0]}<br>Project: %{x}'
     ))
     fig_size.update_layout(
         title='Lines of Code by Project',
@@ -281,6 +321,24 @@ def plot_multi_project_comparison(projects_data):
         **plot_template
     )
     st.plotly_chart(fig_size, use_container_width=True)
+
+    # Technical Debt comparison
+    fig_debt = go.Figure()
+    fig_debt.add_trace(go.Bar(
+        x=df['project_name'],
+        y=df['sqale_index'],
+        name='Technical Debt',
+        marker_color='#F6AD55',
+        customdata=[[format_technical_debt(val)] for val in df['sqale_index']],
+        hovertemplate='Technical Debt: %{customdata[0]}<br>Project: %{x}'
+    ))
+    fig_debt.update_layout(
+        title='Technical Debt by Project',
+        xaxis_title='Project',
+        yaxis_title='Technical Debt',
+        **plot_template
+    )
+    st.plotly_chart(fig_debt, use_container_width=True)
 
     # Quality Score Bar Chart
     st.markdown("### 📊 Quality Metrics Comparison")
@@ -364,10 +422,11 @@ def plot_multi_project_comparison(projects_data):
     # Project Rankings
     st.markdown("### 🏆 Project Rankings")
     
-    # Create rankings table with size included
+    # Create rankings table with size and technical debt included
     rankings = pd.DataFrame({
         'Project': df['project_name'],
         'Lines of Code': df['ncloc'].apply(format_code_lines),
+        'Technical Debt': df['sqale_index'].apply(format_technical_debt),
         'Quality Score': df.apply(lambda row: analyzer.calculate_quality_score(row), axis=1),
         'Total Issues': df['bugs'] + df['vulnerabilities'] + df['code_smells'],
         'Coverage': df['coverage'],
