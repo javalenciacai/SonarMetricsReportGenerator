@@ -21,6 +21,87 @@ def create_metric_card(title, value, status, help_text):
     if help_text:
         st.markdown(f'<small style="color: #A0AEC0;">{help_text}</small>', unsafe_allow_html=True)
 
+def display_multi_project_metrics(projects_data):
+    """Display metrics for multiple projects in a comparative view"""
+    st.markdown("""
+        <style>
+        .project-card {
+            background: #1A1F25;
+            border: 1px solid #2D3748;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .metric-item {
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            background: #2D3748;
+        }
+        .metric-title {
+            color: #A0AEC0;
+            font-size: 0.8rem;
+        }
+        .metric-value {
+            color: #FAFAFA;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    analyzer = MetricAnalyzer()
+    
+    # Create a DataFrame for easy comparison
+    metrics_list = []
+    for project_key, data in projects_data.items():
+        metrics = data['metrics']
+        metrics['project_key'] = project_key
+        metrics['project_name'] = data['name']
+        metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
+        metrics_list.append(metrics)
+    
+    df = pd.DataFrame(metrics_list)
+    
+    # Sort projects by quality score
+    df = df.sort_values('quality_score', ascending=False)
+    
+    # Display project cards
+    for _, row in df.iterrows():
+        st.markdown(f"""
+            <div class="project-card">
+                <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
+                <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-title">Bugs</div>
+                        <div class="metric-value">{int(row['bugs'])} 🐛</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Vulnerabilities</div>
+                        <div class="metric-value">{int(row['vulnerabilities'])} ⚠️</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Code Smells</div>
+                        <div class="metric-value">{int(row['code_smells'])} 🔧</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Coverage</div>
+                        <div class="metric-value">{row['coverage']:.1f}% 📊</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Duplication</div>
+                        <div class="metric-value">{row['duplicated_lines_density']:.1f}% 📝</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
 def display_current_metrics(metrics_data):
     st.markdown("""
         <style>
@@ -46,8 +127,9 @@ def display_current_metrics(metrics_data):
     """, unsafe_allow_html=True)
     
     # Calculate quality score and status
-    quality_score = MetricAnalyzer.calculate_quality_score(metrics_data)
-    metric_status = MetricAnalyzer.get_metric_status(metrics_data)
+    analyzer = MetricAnalyzer()
+    quality_score = analyzer.calculate_quality_score(metrics_data)
+    metric_status = analyzer.get_metric_status(metrics_data)
     
     # Create header with quality score
     col1, col2 = st.columns([2, 1])
@@ -155,12 +237,13 @@ def create_download_report(data):
     df = pd.DataFrame(data)
     
     # Add quality score calculation
+    analyzer = MetricAnalyzer()
     metrics_dict = df.iloc[-1].to_dict()
-    quality_score = MetricAnalyzer.calculate_quality_score(metrics_dict)
-    df['quality_score'] = df.apply(lambda row: MetricAnalyzer.calculate_quality_score(row.to_dict()), axis=1)
+    quality_score = analyzer.calculate_quality_score(metrics_dict)
+    df['quality_score'] = df.apply(lambda row: analyzer.calculate_quality_score(row.to_dict()), axis=1)
     
     # Calculate metric status
-    status_df = pd.DataFrame([MetricAnalyzer.get_metric_status(row.to_dict()) 
+    status_df = pd.DataFrame([analyzer.get_metric_status(row.to_dict()) 
                            for _, row in df.iterrows()])
     
     # Combine all data

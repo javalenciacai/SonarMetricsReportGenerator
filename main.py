@@ -4,8 +4,8 @@ from services.metrics_processor import MetricsProcessor
 from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
-from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends
-from components.visualizations import plot_metrics_history
+from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
+from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from database.schema import initialize_database
 import os
 
@@ -125,13 +125,14 @@ def main():
         st.warning("No projects found in the organization")
         return
 
-    # Project selection in sidebar
+    # Project selection in sidebar with 'All Projects' option
     with sidebar:
         st.markdown("### 🎯 Project Selection")
         project_names = {project['key']: project['name'] for project in projects}
+        project_names['all'] = "All Projects"  # Add 'All Projects' option
         selected_project = st.selectbox(
             "Select Project",
-            options=list(project_names.keys()),
+            options=['all'] + list(project_names.keys())[:-1],  # Place 'all' at the beginning
             format_func=lambda x: project_names[x]
         )
 
@@ -155,7 +156,7 @@ def main():
             help="Enter email addresses (comma-separated) to receive reports and notifications"
         )
 
-        if email_recipients:
+        if email_recipients and selected_project != 'all':
             if st.button("🔄 Setup Automation"):
                 recipients_list = [email.strip() for email in email_recipients.split(",")]
                 
@@ -177,8 +178,29 @@ def main():
                     else:
                         st.error(f"❌ Failed to generate test report: {gen_message}")
 
-    if selected_project:
-        # Fetch and store metrics
+    if selected_project == 'all':
+        st.markdown("## 📊 Multi-Project Overview")
+        
+        # Fetch metrics for all projects
+        all_project_metrics = {}
+        for project_key in list(project_names.keys())[:-1]:  # Exclude 'all'
+            metrics = sonar_api.get_project_metrics(project_key)
+            if metrics:
+                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                all_project_metrics[project_key] = {
+                    'name': project_names[project_key],
+                    'metrics': metrics_dict
+                }
+                MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
+
+        # Display multi-project metrics
+        display_multi_project_metrics(all_project_metrics)
+        
+        # Plot multi-project comparison
+        plot_multi_project_comparison(all_project_metrics)
+        
+    else:
+        # Single project view
         metrics = sonar_api.get_project_metrics(selected_project)
         if metrics:
             metrics_dict = {m['metric']: float(m['value']) for m in metrics}

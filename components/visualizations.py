@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 import numpy as np
+from services.metric_analyzer import MetricAnalyzer
 
 def calculate_moving_averages(df, metric_columns, windows=[7, 30]):
     """Calculate moving averages for specified metrics"""
@@ -25,6 +26,7 @@ def calculate_percentage_changes(df, metric_columns, periods=[7, 30]):
     return changes
 
 def plot_metrics_history(historical_data):
+    """Plot historical metrics data"""
     if not historical_data:
         st.warning("No historical data available")
         return
@@ -53,7 +55,6 @@ def plot_metrics_history(historical_data):
             'duplicated_lines_density': '#4299E1'  # Blue
         }
 
-        # Plot template for dark mode
         plot_template = {
             'paper_bgcolor': '#1A1F25',
             'plot_bgcolor': '#1A1F25',
@@ -71,7 +72,6 @@ def plot_metrics_history(historical_data):
         # Issues Plot
         fig1 = go.Figure()
         
-        # Add traces for each issue metric
         for metric in issue_metrics:
             fig1.add_trace(go.Scatter(
                 x=df['timestamp'],
@@ -79,7 +79,6 @@ def plot_metrics_history(historical_data):
                 name=metric.replace('_', ' ').title(),
                 line=dict(color=colors[metric])
             ))
-            # Add moving averages
             fig1.add_trace(go.Scatter(
                 x=df['timestamp'],
                 y=ma_df[f'{metric}_ma_7d'],
@@ -115,7 +114,6 @@ def plot_metrics_history(historical_data):
                 name=metric.replace('_', ' ').title(),
                 line=dict(color=colors[metric])
             ))
-            # Add moving averages
             fig2.add_trace(go.Scatter(
                 x=df['timestamp'],
                 y=ma_df[f'{metric}_ma_7d'],
@@ -141,7 +139,7 @@ def plot_metrics_history(historical_data):
         )
         st.plotly_chart(fig2, use_container_width=True)
 
-        # Display trend summary with dark mode compatible colors
+        # Display trend summary
         st.markdown('<h3 style="color: #FAFAFA;">Trend Summary</h3>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         
@@ -171,35 +169,158 @@ def plot_metrics_history(historical_data):
                         unsafe_allow_html=True
                     )
 
-        # Display 30-day trend analysis
-        st.markdown('<h3 style="color: #FAFAFA;">30-Day Trend Analysis</h3>', unsafe_allow_html=True)
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            st.markdown('<p style="color: #FAFAFA;"><strong>Issue Metrics Changes (30 days)</strong></p>', unsafe_allow_html=True)
-            for metric in issue_metrics:
-                change = changes.get(f'{metric}_30d_change')
-                if change is not None:
-                    emoji = "📉" if change < 0 else "📈" if change > 0 else "➡️"
-                    color = "#48BB78" if change < 0 else "#F56565" if change > 0 else "#A0AEC0"
-                    st.markdown(
-                        f'<p style="color: #FAFAFA;">{metric.replace("_", " ").title()}: '
-                        f'<span style="color: {color}">{change:+.1f}% {emoji}</span></p>',
-                        unsafe_allow_html=True
-                    )
-
-        with col4:
-            st.markdown('<p style="color: #FAFAFA;"><strong>Quality Metrics Changes (30 days)</strong></p>', unsafe_allow_html=True)
-            for metric in quality_metrics:
-                change = changes.get(f'{metric}_30d_change')
-                if change is not None:
-                    emoji = "📈" if change > 0 else "📉" if change < 0 else "➡️"
-                    color = "#48BB78" if change > 0 else "#F56565" if change < 0 else "#A0AEC0"
-                    st.markdown(
-                        f'<p style="color: #FAFAFA;">{metric.replace("_", " ").title()}: '
-                        f'<span style="color: {color}">{change:+.1f}% {emoji}</span></p>',
-                        unsafe_allow_html=True
-                    )
-
     except Exception as e:
         st.error(f"Error plotting metrics: {str(e)}")
+
+def plot_multi_project_comparison(projects_data):
+    """Create comparative visualizations for multiple projects"""
+    if not projects_data:
+        st.warning("No project data available for comparison")
+        return
+
+    analyzer = MetricAnalyzer()
+    
+    # Convert data to DataFrame for easier plotting
+    metrics_list = []
+    for project_key, data in projects_data.items():
+        metrics = data['metrics']
+        metrics['project_key'] = project_key
+        metrics['project_name'] = data['name']
+        metrics_list.append(metrics)
+    
+    df = pd.DataFrame(metrics_list)
+
+    # Dark mode compatible colors and template
+    colors = px.colors.qualitative.Set3
+    plot_template = {
+        'paper_bgcolor': '#1A1F25',
+        'plot_bgcolor': '#1A1F25',
+        'font': {'color': '#FAFAFA'},
+        'xaxis': {
+            'gridcolor': '#2D3748',
+            'linecolor': '#2D3748'
+        },
+        'yaxis': {
+            'gridcolor': '#2D3748',
+            'linecolor': '#2D3748'
+        }
+    }
+
+    # Create quality metrics comparison
+    st.markdown("### 📊 Quality Metrics Comparison")
+    
+    # Quality Score Bar Chart
+    fig1 = go.Figure()
+    fig1.add_trace(go.Bar(
+        x=df['project_name'],
+        y=df.apply(lambda row: analyzer.calculate_quality_score(row), axis=1),
+        name='Quality Score',
+        marker_color='#48BB78'
+    ))
+    fig1.update_layout(
+        title='Overall Quality Score by Project',
+        xaxis_title='Project',
+        yaxis_title='Quality Score',
+        **plot_template
+    )
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # Issues Comparison
+    st.markdown("### 🐛 Issues Comparison")
+    
+    # Create a grouped bar chart for issues
+    issue_metrics = ['bugs', 'vulnerabilities', 'code_smells']
+    fig2 = go.Figure()
+    
+    for i, metric in enumerate(issue_metrics):
+        fig2.add_trace(go.Bar(
+            name=metric.title(),
+            x=df['project_name'],
+            y=df[metric],
+            marker_color=colors[i]
+        ))
+
+    fig2.update_layout(
+        title='Issues by Project',
+        xaxis_title='Project',
+        yaxis_title='Count',
+        barmode='group',
+        **plot_template
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # Quality Metrics Comparison
+    st.markdown("### 📈 Coverage and Duplication")
+    
+    # Create a dual-axis chart for coverage and duplication
+    fig3 = go.Figure()
+    
+    fig3.add_trace(go.Bar(
+        name='Coverage',
+        x=df['project_name'],
+        y=df['coverage'],
+        marker_color='#48BB78',
+        yaxis='y'
+    ))
+    
+    fig3.add_trace(go.Bar(
+        name='Duplication',
+        x=df['project_name'],
+        y=df['duplicated_lines_density'],
+        marker_color='#F56565',
+        yaxis='y2'
+    ))
+
+    fig3.update_layout(
+        title='Coverage and Duplication by Project',
+        xaxis_title='Project',
+        yaxis_title='Coverage (%)',
+        yaxis2=dict(
+            title='Duplication (%)',
+            overlaying='y',
+            side='right',
+            gridcolor='#2D3748'
+        ),
+        barmode='group',
+        **plot_template
+    )
+    st.plotly_chart(fig3, use_container_width=True)
+
+    # Project Rankings
+    st.markdown("### 🏆 Project Rankings")
+    
+    # Create rankings table
+    rankings = pd.DataFrame({
+        'Project': df['project_name'],
+        'Quality Score': df.apply(lambda row: analyzer.calculate_quality_score(row), axis=1),
+        'Total Issues': df['bugs'] + df['vulnerabilities'] + df['code_smells'],
+        'Coverage': df['coverage'],
+        'Duplication': df['duplicated_lines_density']
+    })
+    
+    rankings = rankings.sort_values('Quality Score', ascending=False)
+    rankings = rankings.round(2)
+    
+    # Display rankings with custom formatting
+    st.markdown("""
+        <style>
+        .dataframe {
+            background-color: #1A1F25 !important;
+            color: #FAFAFA !important;
+        }
+        .dataframe th {
+            background-color: #2D3748 !important;
+            color: #FAFAFA !important;
+        }
+        .dataframe td {
+            background-color: #1A1F25 !important;
+            color: #FAFAFA !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.dataframe(rankings.style.format({
+        'Quality Score': '{:.1f}',
+        'Coverage': '{:.1f}%',
+        'Duplication': '{:.1f}%'
+    }))
