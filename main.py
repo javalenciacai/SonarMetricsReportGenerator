@@ -6,7 +6,7 @@ from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
-from database.schema import initialize_database, delete_project_data
+from database.schema import initialize_database, delete_project_data, mark_project_for_deletion, unmark_project_for_deletion
 import os
 from datetime import datetime, timedelta
 
@@ -105,13 +105,35 @@ def display_project_management(metrics_processor):
                         st.text(f"Last seen: {project['last_seen'].strftime('%Y-%m-%d')}")
                         st.text(f"Inactive for: {project['inactive_duration'].days} days")
                         
-                        if st.button(f"🗑️ Delete {project['name']}", key=f"delete_{project['repo_key']}"):
-                            success, message = delete_project_data(project['repo_key'])
-                            if success:
-                                st.success(f"✅ {message}")
-                                st.rerun()
-                            else:
-                                st.error(f"❌ {message}")
+                        # Show mark for deletion button if not marked
+                        if not project.get('is_marked_for_deletion'):
+                            if st.button(f"⚠️ Mark for Deletion", key=f"mark_{project['repo_key']}"):
+                                success, message = mark_project_for_deletion(project['repo_key'])
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
+                        else:
+                            # Show confirm deletion and cancel buttons if marked
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button(f"🗑️ Confirm Delete", key=f"confirm_{project['repo_key']}", 
+                                           help="Permanently delete this project"):
+                                    success, message = delete_project_data(project['repo_key'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                            with col2:
+                                if st.button(f"↩️ Cancel", key=f"cancel_{project['repo_key']}"):
+                                    success, message = unmark_project_for_deletion(project['repo_key'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
             else:
                 st.success("✅ All projects are active")
 

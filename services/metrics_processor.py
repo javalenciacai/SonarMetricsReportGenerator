@@ -20,8 +20,8 @@ class MetricsProcessor:
         # Store metrics
         metrics_query = """
         INSERT INTO metrics (repository_id, bugs, vulnerabilities, code_smells, 
-                           coverage, duplicated_lines_density)
-        VALUES (%s, %s, %s, %s, %s, %s);
+                           coverage, duplicated_lines_density, ncloc, sqale_index)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
         """
         metrics_data = (
             repo_id,
@@ -29,7 +29,9 @@ class MetricsProcessor:
             metrics.get('vulnerabilities', 0),
             metrics.get('code_smells', 0),
             metrics.get('coverage', 0),
-            metrics.get('duplicated_lines_density', 0)
+            metrics.get('duplicated_lines_density', 0),
+            metrics.get('ncloc', 0),
+            metrics.get('sqale_index', 0)
         )
         execute_query(metrics_query, metrics_data)
 
@@ -41,7 +43,9 @@ class MetricsProcessor:
             m.vulnerabilities, 
             m.code_smells, 
             m.coverage, 
-            m.duplicated_lines_density, 
+            m.duplicated_lines_density,
+            m.ncloc,
+            m.sqale_index,
             m.timestamp::text as timestamp
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
@@ -62,7 +66,8 @@ class MetricsProcessor:
             repo_key,
             name,
             last_seen,
-            created_at
+            created_at,
+            is_marked_for_deletion
         FROM repositories
         WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '%s days'
         ORDER BY last_seen DESC;
@@ -78,6 +83,7 @@ class MetricsProcessor:
             repo_key,
             name,
             is_active,
+            is_marked_for_deletion,
             last_seen,
             created_at,
             CURRENT_TIMESTAMP - last_seen as inactive_duration

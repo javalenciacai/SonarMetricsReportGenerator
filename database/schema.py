@@ -7,11 +7,14 @@ def initialize_database():
         repo_key VARCHAR(255) UNIQUE NOT NULL,
         name VARCHAR(255) NOT NULL,
         is_active BOOLEAN DEFAULT true,
+        is_marked_for_deletion BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     ALTER TABLE repositories 
     ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    ALTER TABLE repositories 
+    ADD COLUMN IF NOT EXISTS is_marked_for_deletion BOOLEAN DEFAULT false;
 
     CREATE TABLE IF NOT EXISTS metrics (
         id SERIAL PRIMARY KEY,
@@ -28,18 +31,52 @@ def initialize_database():
     """
     execute_query(create_tables_query)
 
-def delete_project_data(repo_key):
-    """Delete all data for a specific project"""
-    delete_metrics_query = """
-    DELETE FROM metrics
-    WHERE repository_id = (SELECT id FROM repositories WHERE repo_key = %s);
-    """
-    delete_repo_query = """
-    DELETE FROM repositories
+def mark_project_for_deletion(repo_key):
+    """Mark a project for deletion"""
+    mark_query = """
+    UPDATE repositories
+    SET is_marked_for_deletion = true
     WHERE repo_key = %s;
     """
-    
     try:
+        execute_query(mark_query, (repo_key,))
+        return True, "Project marked for deletion"
+    except Exception as e:
+        return False, f"Error marking project for deletion: {str(e)}"
+
+def unmark_project_for_deletion(repo_key):
+    """Remove deletion mark from a project"""
+    unmark_query = """
+    UPDATE repositories
+    SET is_marked_for_deletion = false
+    WHERE repo_key = %s;
+    """
+    try:
+        execute_query(unmark_query, (repo_key,))
+        return True, "Deletion mark removed"
+    except Exception as e:
+        return False, f"Error removing deletion mark: {str(e)}"
+
+def delete_project_data(repo_key):
+    """Delete all data for a specific project that is marked for deletion"""
+    # First check if the project is marked for deletion
+    check_query = """
+    SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
+    """
+    try:
+        result = execute_query(check_query, (repo_key,))
+        if not result or not result[0][0]:
+            return False, "Project must be marked for deletion first"
+
+        delete_metrics_query = """
+        DELETE FROM metrics
+        WHERE repository_id = (SELECT id FROM repositories WHERE repo_key = %s);
+        """
+        delete_repo_query = """
+        DELETE FROM repositories
+        WHERE repo_key = %s;
+        """
+        
         execute_query(delete_metrics_query, (repo_key,))
         execute_query(delete_repo_query, (repo_key,))
         return True, "Project data deleted successfully"
