@@ -55,6 +55,17 @@ def initialize_database():
     """
     execute_query(create_metrics_table)
 
+    # Create policy acceptance table
+    create_policy_table = """
+    CREATE TABLE IF NOT EXISTS policy_acceptance (
+        id SERIAL PRIMARY KEY,
+        user_token VARCHAR(255) UNIQUE NOT NULL,
+        accepted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    execute_query(create_policy_table)
+
     # Add columns to metrics if they don't exist
     alter_metrics = """
     DO $$
@@ -126,3 +137,33 @@ def delete_project_data(repo_key):
         return True, "Project data deleted successfully"
     except Exception as e:
         return False, f"Error deleting project data: {str(e)}"
+
+def check_policy_acceptance(user_token):
+    """Check if a user has accepted the policies"""
+    query = """
+    SELECT EXISTS(
+        SELECT 1 FROM policy_acceptance 
+        WHERE user_token = %s
+    );
+    """
+    try:
+        result = execute_query(query, (user_token,))
+        return result[0][0] if result else False
+    except Exception as e:
+        print(f"Error checking policy acceptance: {str(e)}")
+        return False
+
+def store_policy_acceptance(user_token):
+    """Store user's policy acceptance"""
+    query = """
+    INSERT INTO policy_acceptance (user_token, accepted_at, last_updated)
+    VALUES (%s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT (user_token) 
+    DO UPDATE SET last_updated = CURRENT_TIMESTAMP;
+    """
+    try:
+        execute_query(query, (user_token,))
+        return True
+    except Exception as e:
+        print(f"Error storing policy acceptance: {str(e)}")
+        return False

@@ -4,13 +4,10 @@ address = "0.0.0.0"
 port = 5000
 
 [theme]
-# Primary colors
 primaryColor = "#FF4B4B"  # SonarCloud red
 backgroundColor = "#0E1117"  # Dark background
 secondaryBackgroundColor = "#1A1F25"  # Slightly lighter dark
 textColor = "#FAFAFA"  # Light text for dark mode
-
-# Font styles
 font = "sans serif"
 
 [deprecation]
