@@ -7,8 +7,10 @@ This document outlines the data usage policies and terms of service for the Sona
 
 ### Types of Data Collected
 1. **SonarCloud Metrics Data**
-   - Code quality metrics
-   - Project statistics
+   - Code quality metrics and statistics only
+   - **Important Note**: We do NOT collect or store any source code from your projects
+   - Only numerical metrics and analytical data are stored
+   - Project statistics and metadata
    - Historical trend data
    - Analysis results
 
@@ -19,6 +21,7 @@ This document outlines the data usage policies and terms of service for the Sona
 
 ### Data Sources
 - Primary data is sourced from SonarCloud's public API
+- Only metrics and statistics are retrieved, never the source code
 - User-provided configuration data
 - Generated analytical data
 
