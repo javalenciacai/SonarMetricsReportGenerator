@@ -16,6 +16,29 @@ def initialize_database():
     """
     execute_query(create_repositories_table)
 
+    # Create project groups table
+    create_groups_table = """
+    CREATE TABLE IF NOT EXISTS project_groups (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    execute_query(create_groups_table)
+
+    # Create group memberships table
+    create_group_memberships_table = """
+    CREATE TABLE IF NOT EXISTS group_memberships (
+        id SERIAL PRIMARY KEY,
+        group_id INTEGER REFERENCES project_groups(id) ON DELETE CASCADE,
+        repository_id INTEGER REFERENCES repositories(id) ON DELETE CASCADE,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(group_id, repository_id)
+    );
+    """
+    execute_query(create_group_memberships_table)
+
     # Add columns to repositories if they don't exist
     alter_repositories = """
     DO $$
@@ -167,3 +190,82 @@ def store_policy_acceptance(user_token):
     except Exception as e:
         print(f"Error storing policy acceptance: {str(e)}")
         return False
+
+def create_project_group(name, description=None):
+    """Create a new project group"""
+    query = """
+    INSERT INTO project_groups (name, description)
+    VALUES (%s, %s)
+    RETURNING id;
+    """
+    try:
+        result = execute_query(query, (name, description))
+        return result[0][0] if result else None
+    except Exception as e:
+        print(f"Error creating project group: {str(e)}")
+        return None
+
+def delete_project_group(group_id):
+    """Delete a project group"""
+    query = """
+    DELETE FROM project_groups
+    WHERE id = %s;
+    """
+    try:
+        execute_query(query, (group_id,))
+        return True
+    except Exception as e:
+        print(f"Error deleting project group: {str(e)}")
+        return False
+
+def add_project_to_group(group_id, repo_key):
+    """Add a project to a group"""
+    query = """
+    INSERT INTO group_memberships (group_id, repository_id)
+    SELECT %s, id FROM repositories WHERE repo_key = %s
+    ON CONFLICT DO NOTHING;
+    """
+    try:
+        execute_query(query, (group_id, repo_key))
+        return True
+    except Exception as e:
+        print(f"Error adding project to group: {str(e)}")
+        return False
+
+def remove_project_from_group(group_id, repo_key):
+    """Remove a project from a group"""
+    query = """
+    DELETE FROM group_memberships
+    WHERE group_id = %s AND repository_id = (
+        SELECT id FROM repositories WHERE repo_key = %s
+    );
+    """
+    try:
+        execute_query(query, (group_id, repo_key))
+        return True
+    except Exception as e:
+        print(f"Error removing project from group: {str(e)}")
+        return False
+
+def get_project_groups():
+    """Get all project groups with their members"""
+    query = """
+    SELECT 
+        pg.id,
+        pg.name,
+        pg.description,
+        array_agg(r.repo_key) as projects,
+        array_agg(r.name) as project_names,
+        count(gm.repository_id) as project_count
+    FROM project_groups pg
+    LEFT JOIN group_memberships gm ON pg.id = gm.group_id
+    LEFT JOIN repositories r ON gm.repository_id = r.id
+    GROUP BY pg.id, pg.name, pg.description
+    ORDER BY pg.name;
+    """
+    try:
+        result = execute_query(query)
+        return [dict(row) for row in result] if result else []
+    except Exception as e:
+        print(f"Error getting project groups: {str(e)}")
+        return []

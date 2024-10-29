@@ -7,6 +7,7 @@ from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
+from components.project_groups import manage_project_groups, get_group_metrics
 from database.schema import initialize_database
 import os
 from datetime import datetime, timedelta
@@ -131,13 +132,11 @@ def main():
             st.warning("⚠️ Please enter your SonarCloud token to continue")
             return
 
-        # Store token in session state for policy acceptance
         st.session_state.sonar_token = token
 
         with st.sidebar:
             show_policies()
         
-        # Check policy acceptance from database
         if not get_policy_acceptance_status(token):
             st.warning("⚠️ Please read and accept the Data Usage Policies and Terms of Service to continue")
             return
@@ -232,58 +231,64 @@ def main():
                             else:
                                 st.error(f"❌ Failed to generate test report: {gen_message}")
 
-        # Display the appropriate view based on project selection
         if st.session_state.selected_project == 'all':
             st.markdown("## 📊 Multi-Project Overview")
             
-            show_inactive = st.checkbox(
-                "🔍 Show Inactive Projects",
-                value=st.session_state.show_inactive_projects,
-                help="Toggle to show/hide inactive projects in the overview",
-                key="inactive_projects_filter"
-            )
-            st.session_state.show_inactive_projects = show_inactive
+            tab1, tab2 = st.tabs(["📊 All Projects", "📁 Project Groups"])
             
-            all_project_metrics = {}
-            
-            for project_key in active_project_keys:
-                metrics = sonar_api.get_project_metrics(project_key)
-                if metrics:
-                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                    all_project_metrics[project_key] = {
-                        'name': project_names[project_key].replace('✅ ', ''),
-                        'metrics': metrics_dict
-                    }
-                    MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
+            with tab1:
+                show_inactive = st.checkbox(
+                    "🔍 Show Inactive Projects",
+                    value=st.session_state.show_inactive_projects,
+                    help="Toggle to show/hide inactive projects in the overview",
+                    key="inactive_projects_filter"
+                )
+                st.session_state.show_inactive_projects = show_inactive
+                
+                all_project_metrics = {}
+                
+                for project_key in active_project_keys:
+                    metrics = sonar_api.get_project_metrics(project_key)
+                    if metrics:
+                        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                        all_project_metrics[project_key] = {
+                            'name': project_names[project_key].replace('✅ ', ''),
+                            'metrics': metrics_dict
+                        }
+                        MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
 
-            if show_inactive:
-                for project in all_projects_status:
-                    if not project['is_active']:
-                        latest_metrics = project.get('latest_metrics')
-                        if latest_metrics:
-                            metrics_dict = {
-                                'bugs': float(latest_metrics['bugs']),
-                                'vulnerabilities': float(latest_metrics['vulnerabilities']),
-                                'code_smells': float(latest_metrics['code_smells']),
-                                'coverage': float(latest_metrics['coverage']),
-                                'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
-                                'ncloc': float(latest_metrics['ncloc']),
-                                'sqale_index': float(latest_metrics['sqale_index'])
-                            }
-                            all_project_metrics[project['repo_key']] = {
-                                'name': f"{project['name']} (Inactive)",
-                                'metrics': metrics_dict,
-                                'is_inactive': True
-                            }
-
-            if all_project_metrics:
-                display_multi_project_metrics(all_project_metrics)
-                plot_multi_project_comparison(all_project_metrics)
-            else:
                 if show_inactive:
-                    st.warning("No projects found (active or inactive)")
+                    for project in all_projects_status:
+                        if not project['is_active']:
+                            latest_metrics = project.get('latest_metrics')
+                            if latest_metrics:
+                                metrics_dict = {
+                                    'bugs': float(latest_metrics['bugs']),
+                                    'vulnerabilities': float(latest_metrics['vulnerabilities']),
+                                    'code_smells': float(latest_metrics['code_smells']),
+                                    'coverage': float(latest_metrics['coverage']),
+                                    'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
+                                    'ncloc': float(latest_metrics['ncloc']),
+                                    'sqale_index': float(latest_metrics['sqale_index'])
+                                }
+                                all_project_metrics[project['repo_key']] = {
+                                    'name': f"{project['name']} (Inactive)",
+                                    'metrics': metrics_dict,
+                                    'is_inactive': True
+                                }
+
+                if all_project_metrics:
+                    display_multi_project_metrics(all_project_metrics)
+                    plot_multi_project_comparison(all_project_metrics)
                 else:
-                    st.warning("No active projects found")
+                    if show_inactive:
+                        st.warning("No projects found (active or inactive)")
+                    else:
+                        st.warning("No active projects found")
+            
+            with tab2:
+                manage_project_groups(active_projects, project_names)
+
         else:
             try:
                 is_inactive = st.session_state.selected_project not in active_project_keys
