@@ -1,7 +1,6 @@
 import pandas as pd
 from database.connection import execute_query
 from datetime import datetime, timedelta
-from database.schema import mark_project_for_deletion, unmark_project_for_deletion, delete_project_data
 
 class MetricsProcessor:
     @staticmethod
@@ -170,14 +169,57 @@ class MetricsProcessor:
     @staticmethod
     def mark_project_for_deletion(repo_key):
         """Mark a project for deletion"""
-        return mark_project_for_deletion(repo_key)
+        query = """
+        UPDATE repositories
+        SET is_marked_for_deletion = true
+        WHERE repo_key = %s;
+        """
+        try:
+            execute_query(query, (repo_key,))
+            return True, "Project marked for deletion"
+        except Exception as e:
+            return False, f"Error marking project for deletion: {str(e)}"
 
     @staticmethod
     def unmark_project_for_deletion(repo_key):
         """Remove deletion mark from a project"""
-        return unmark_project_for_deletion(repo_key)
+        query = """
+        UPDATE repositories
+        SET is_marked_for_deletion = false
+        WHERE repo_key = %s;
+        """
+        try:
+            execute_query(query, (repo_key,))
+            return True, "Deletion mark removed"
+        except Exception as e:
+            return False, f"Error removing deletion mark: {str(e)}"
 
     @staticmethod
     def delete_project_data(repo_key):
-        """Delete all data for a specific project"""
-        return delete_project_data(repo_key)
+        """Delete all data for a specific project that is marked for deletion"""
+        # First check if the project is marked for deletion
+        check_query = """
+        SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
+        """
+        try:
+            result = execute_query(check_query, (repo_key,))
+            if not result or not result[0][0]:
+                return False, "Project must be marked for deletion first"
+
+            # Delete metrics first due to foreign key constraint
+            delete_metrics_query = """
+            DELETE FROM metrics
+            WHERE repository_id = (SELECT id FROM repositories WHERE repo_key = %s);
+            """
+            execute_query(delete_metrics_query, (repo_key,))
+
+            # Then delete the repository
+            delete_repo_query = """
+            DELETE FROM repositories
+            WHERE repo_key = %s;
+            """
+            execute_query(delete_repo_query, (repo_key,))
+            
+            return True, "Project data deleted successfully"
+        except Exception as e:
+            return False, f"Error deleting project data: {str(e)}"

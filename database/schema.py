@@ -20,7 +20,7 @@ def initialize_database():
     create_tags_table = """
     CREATE TABLE IF NOT EXISTS tags (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(50) NOT NULL,
+        name VARCHAR(50) UNIQUE NOT NULL,
         color VARCHAR(7) NOT NULL DEFAULT '#808080',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -107,18 +107,28 @@ def initialize_database():
 
 # Tag management functions
 def create_tag(name, color='#808080'):
-    """Create a new tag"""
-    query = """
-    INSERT INTO tags (name, color)
-    VALUES (%s, %s)
-    RETURNING id;
+    """Create a new tag with duplicate check"""
+    # First check if tag exists
+    check_query = """
+    SELECT EXISTS(
+        SELECT 1 FROM tags WHERE name = %s
+    );
     """
     try:
-        result = execute_query(query, (name, color))
-        return result[0][0] if result else None
+        result = execute_query(check_query, (name,))
+        if result[0][0]:  # Tag exists
+            return None, "Tag with this name already exists"
+
+        # Create new tag if it doesn't exist
+        insert_query = """
+        INSERT INTO tags (name, color)
+        VALUES (%s, %s)
+        RETURNING id;
+        """
+        result = execute_query(insert_query, (name, color))
+        return result[0][0], "Tag created successfully" if result else None, "Failed to create tag"
     except Exception as e:
-        print(f"Error creating tag: {str(e)}")
-        return None
+        return None, f"Error creating tag: {str(e)}"
 
 def get_all_tags():
     """Get all available tags"""
@@ -197,62 +207,7 @@ def delete_tag(tag_id):
         print(f"Error deleting tag: {str(e)}")
         return False
 
-# Existing functions...
-def mark_project_for_deletion(repo_key):
-    """Mark a project for deletion"""
-    query = """
-    UPDATE repositories
-    SET is_marked_for_deletion = true
-    WHERE repo_key = %s;
-    """
-    try:
-        execute_query(query, (repo_key,))
-        return True, "Project marked for deletion"
-    except Exception as e:
-        return False, f"Error marking project for deletion: {str(e)}"
-
-def unmark_project_for_deletion(repo_key):
-    """Remove deletion mark from a project"""
-    query = """
-    UPDATE repositories
-    SET is_marked_for_deletion = false
-    WHERE repo_key = %s;
-    """
-    try:
-        execute_query(query, (repo_key,))
-        return True, "Deletion mark removed"
-    except Exception as e:
-        return False, f"Error removing deletion mark: {str(e)}"
-
-def delete_project_data(repo_key):
-    """Delete all data for a specific project that is marked for deletion"""
-    # First check if the project is marked for deletion
-    check_query = """
-    SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
-    """
-    try:
-        result = execute_query(check_query, (repo_key,))
-        if not result or not result[0][0]:
-            return False, "Project must be marked for deletion first"
-
-        # Delete metrics first due to foreign key constraint
-        delete_metrics_query = """
-        DELETE FROM metrics
-        WHERE repository_id = (SELECT id FROM repositories WHERE repo_key = %s);
-        """
-        execute_query(delete_metrics_query, (repo_key,))
-
-        # Then delete the repository
-        delete_repo_query = """
-        DELETE FROM repositories
-        WHERE repo_key = %s;
-        """
-        execute_query(delete_repo_query, (repo_key,))
-        
-        return True, "Project data deleted successfully"
-    except Exception as e:
-        return False, f"Error deleting project data: {str(e)}"
-
+# Policy management functions
 def check_policy_acceptance(user_token):
     """Check if a user has accepted the policies"""
     query = """
