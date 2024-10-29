@@ -126,7 +126,9 @@ def create_tag(name, color='#808080'):
         RETURNING id;
         """
         result = execute_query(insert_query, (name, color))
-        return result[0][0], "Tag created successfully" if result else None, "Failed to create tag"
+        if result:
+            return result[0][0], "Tag created successfully"
+        return None, "Failed to create tag"
     except Exception as e:
         return None, f"Error creating tag: {str(e)}"
 
