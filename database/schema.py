@@ -27,7 +27,8 @@ def initialize_database():
         id SERIAL PRIMARY KEY,
         name VARCHAR(50) UNIQUE NOT NULL,
         color VARCHAR(7) NOT NULL DEFAULT '#808080',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """
     execute_query(create_tags_table)
@@ -169,21 +170,83 @@ def create_tag(name, color='#808080'):
 def get_all_tags():
     """Get all available tags"""
     query = """
-    SELECT id, name, color, created_at
+    SELECT id, name, color, created_at, updated_at
     FROM tags
     ORDER BY name
     """
     try:
         result = execute_query(query)
-        return [dict(zip(['id', 'name', 'color', 'created_at'], row)) for row in result]
+        return [dict(zip(['id', 'name', 'color', 'created_at', 'updated_at'], row)) for row in result]
     except Exception as e:
         logger.error(f"Error getting tags: {str(e)}")
         return []
 
+def edit_tag(tag_id, name=None, color=None):
+    """Edit an existing tag with optimistic locking"""
+    try:
+        execute_query("BEGIN")
+        try:
+            # Check if tag exists and lock for update
+            check_query = """
+            SELECT name, color FROM tags 
+            WHERE id = %s
+            FOR UPDATE
+            """
+            result = execute_query(check_query, (tag_id,))
+            
+            if not result:
+                execute_query("ROLLBACK")
+                return False, "Tag not found"
+            
+            current_name, current_color = result[0]
+            name = name if name is not None else current_name
+            color = color if color is not None else current_color
+            
+            # Check if new name conflicts with existing tags
+            if name != current_name:
+                name_check_query = """
+                SELECT EXISTS(
+                    SELECT 1 FROM tags 
+                    WHERE name = %s AND id != %s
+                    FOR UPDATE
+                )
+                """
+                name_check = execute_query(name_check_query, (name, tag_id))
+                if name_check[0][0]:
+                    execute_query("ROLLBACK")
+                    return False, "Tag name already exists"
+            
+            # Update tag
+            update_query = """
+            UPDATE tags 
+            SET name = %s,
+                color = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING id
+            """
+            result = execute_query(update_query, (name, color, tag_id))
+            
+            if result:
+                execute_query("COMMIT")
+                return True, "Tag updated successfully"
+            else:
+                execute_query("ROLLBACK")
+                return False, "Failed to update tag"
+                
+        except Exception as inner_e:
+            execute_query("ROLLBACK")
+            raise inner_e
+            
+    except Exception as e:
+        error_msg = f"Error updating tag: {str(e)}"
+        logger.error(error_msg)
+        return False, error_msg
+
 def get_project_tags(repo_key):
     """Get all tags for a specific project"""
     query = """
-    SELECT t.id, t.name, t.color, t.created_at
+    SELECT t.id, t.name, t.color, t.created_at, t.updated_at
     FROM tags t
     JOIN repository_tags rt ON rt.tag_id = t.id
     JOIN repositories r ON r.id = rt.repository_id
@@ -192,7 +255,7 @@ def get_project_tags(repo_key):
     """
     try:
         result = execute_query(query, (repo_key,))
-        return [dict(zip(['id', 'name', 'color', 'created_at'], row)) for row in result]
+        return [dict(zip(['id', 'name', 'color', 'created_at', 'updated_at'], row)) for row in result]
     except Exception as e:
         logger.error(f"Error getting project tags: {str(e)}")
         return []
@@ -260,10 +323,16 @@ def delete_tag(tag_id):
         query = """
         DELETE FROM tags
         WHERE id = %s
+        RETURNING id
         """
-        execute_query(query, (tag_id,))
-        execute_query("COMMIT")
-        return True
+        result = execute_query(query, (tag_id,))
+        
+        if result:
+            execute_query("COMMIT")
+            return True
+        else:
+            execute_query("ROLLBACK")
+            return False
     except Exception as e:
         execute_query("ROLLBACK")
         logger.error(f"Error deleting tag: {str(e)}")

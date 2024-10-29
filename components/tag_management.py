@@ -1,7 +1,8 @@
 import streamlit as st
 from database.schema import (
     create_tag, get_all_tags, get_project_tags,
-    add_tag_to_project, remove_tag_from_project, delete_tag
+    add_tag_to_project, remove_tag_from_project, delete_tag,
+    edit_tag
 )
 
 def init_tag_state():
@@ -14,6 +15,8 @@ def init_tag_state():
         st.session_state.selected_tag_id = None
     if 'show_tag_form' not in st.session_state:
         st.session_state.show_tag_form = False
+    if 'editing_tag' not in st.session_state:
+        st.session_state.editing_tag = None
 
 def show_temporary_message():
     """Display temporary success/error messages using containers"""
@@ -28,36 +31,38 @@ def show_temporary_message():
         # Clear message after display
         st.session_state.tag_message = {'type': None, 'content': None}
 
-def render_tag_badge(tag, repo_key=None, on_remove=None):
-    """Render a styled tag badge with container-based updates"""
-    badge_container = st.empty()
+def render_tag_badge(tag, repo_key=None, on_remove=None, enable_edit=False):
+    """Render a styled tag badge with optional edit functionality"""
+    col1, col2 = st.columns([4, 1])
     
-    html = f"""
-        <div style="
-            display: inline-flex;
-            align-items: center;
-            background-color: {tag['color']};
-            color: {'#000' if tag['color'] in ['#FFFFFF', '#FFE4E1', '#E0FFFF', '#F0F8FF'] else '#FFF'};
-            padding: 2px 8px;
-            border-radius: 12px;
-            margin: 2px;
-            font-size: 0.8rem;">
-            {tag['name']}
-        </div>
-    """
-    badge_container.markdown(html, unsafe_allow_html=True)
+    with col1:
+        html = f"""
+            <div style="
+                display: inline-flex;
+                align-items: center;
+                background-color: {tag['color']};
+                color: {'#000' if tag['color'] in ['#FFFFFF', '#FFE4E1', '#E0FFFF', '#F0F8FF'] else '#FFF'};
+                padding: 2px 8px;
+                border-radius: 12px;
+                margin: 2px;
+                font-size: 0.8rem;">
+                {tag['name']}
+            </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
     
-    if on_remove and repo_key:
-        remove_button = st.button(
-            "×", 
-            key=f"remove_tag_{tag['id']}", 
-            help="Remove tag",
-            on_click=lambda: handle_tag_operation(
-                "remove",
-                repo_key=repo_key,
-                tag_id=tag['id']
-            )
-        )
+    with col2:
+        if enable_edit:
+            if st.button("✏️", key=f"edit_tag_{tag['id']}", help="Edit tag"):
+                st.session_state.editing_tag = tag
+        
+        if on_remove and repo_key:
+            if st.button("×", key=f"remove_tag_{tag['id']}", help="Remove tag"):
+                handle_tag_operation(
+                    "remove",
+                    repo_key=repo_key,
+                    tag_id=tag['id']
+                )
 
 def handle_tag_operation(operation_type, **kwargs):
     """Handle tag operations with improved state management and error handling"""
@@ -111,20 +116,47 @@ def handle_tag_operation(operation_type, **kwargs):
             
             tag_id, message = create_tag(name, color)
             if tag_id:
-                result = add_tag_to_project(repo_key, tag_id)
-                if result["success"]:
-                    st.session_state.tag_message = {
-                        'type': 'success',
-                        'content': f"Created and added tag: {name}"
-                    }
-                    st.session_state.show_tag_form = False
-                    return True
+                if repo_key:
+                    result = add_tag_to_project(repo_key, tag_id)
+                    if result["success"]:
+                        st.session_state.tag_message = {
+                            'type': 'success',
+                            'content': f"Created and added tag: {name}"
+                        }
+                        st.session_state.show_tag_form = False
+                        return True
+                    else:
+                        st.session_state.tag_message = {
+                            'type': 'error',
+                            'content': f"Created tag but failed to add: {result.get('message')}"
+                        }
+                        return False
                 else:
                     st.session_state.tag_message = {
-                        'type': 'error',
-                        'content': f"Created tag but failed to add: {result.get('message')}"
+                        'type': 'success',
+                        'content': f"Created tag: {name}"
                     }
-                    return False
+                    return True
+            else:
+                st.session_state.tag_message = {
+                    'type': 'error',
+                    'content': message
+                }
+                return False
+                
+        elif operation_type == "edit":
+            tag_id = kwargs.get('tag_id')
+            name = kwargs.get('name')
+            color = kwargs.get('color')
+            
+            success, message = edit_tag(tag_id, name, color)
+            if success:
+                st.session_state.tag_message = {
+                    'type': 'success',
+                    'content': message
+                }
+                st.session_state.editing_tag = None
+                return True
             else:
                 st.session_state.tag_message = {
                     'type': 'error',
@@ -241,49 +273,64 @@ def display_tag_management():
             tags = get_all_tags()
             if tags:
                 for tag in tags:
-                    col_tag, col_delete = st.columns([4, 1])
+                    col_tag, col_buttons = st.columns([4, 1])
                     with col_tag:
-                        render_tag_badge(tag)
-                    with col_delete:
+                        render_tag_badge(tag, enable_edit=True)
+                    with col_buttons:
                         if st.button(
                             "🗑️",
                             key=f"delete_tag_{tag['id']}",
-                            help="Delete tag",
-                            on_click=lambda tag_id=tag['id']: delete_tag_handler(tag_id)
+                            help="Delete tag"
                         ):
-                            pass
+                            if delete_tag(tag['id']):
+                                st.session_state.tag_message = {
+                                    'type': 'success',
+                                    'content': "Tag deleted successfully"
+                                }
+                                st.experimental_rerun()
+                            else:
+                                st.session_state.tag_message = {
+                                    'type': 'error',
+                                    'content': "Failed to delete tag"
+                                }
             else:
                 st.info("No tags created yet")
         
         with col2:
-            st.markdown("#### Create New Tag")
-            with st.form("global_tag_form", clear_on_submit=True):
-                new_tag_name = st.text_input("Tag name")
-                new_tag_color = st.color_picker("Tag color", value='#808080')
-                submit_button = st.form_submit_button(
-                    "Create Tag",
-                    use_container_width=True
-                )
-                
-                if submit_button:
-                    if not new_tag_name:
-                        st.session_state.tag_message = {
-                            'type': 'error',
-                            'content': "Please enter a tag name"
-                        }
-                    else:
-                        tag_id, message = create_tag(new_tag_name, new_tag_color)
-                        if tag_id:
-                            st.session_state.tag_message = {
-                                'type': 'success',
-                                'content': f"Created tag: {new_tag_name}"
-                            }
-                            st.experimental_rerun()
-                        else:
-                            st.session_state.tag_message = {
-                                'type': 'error',
-                                'content': message
-                            }
+            if st.session_state.editing_tag:
+                st.markdown("#### Edit Tag")
+                with st.form("edit_tag_form"):
+                    edit_name = st.text_input("Tag name", value=st.session_state.editing_tag['name'])
+                    edit_color = st.color_picker("Tag color", value=st.session_state.editing_tag['color'])
+                    
+                    col_submit, col_cancel = st.columns(2)
+                    with col_submit:
+                        if st.form_submit_button("Save Changes"):
+                            handle_tag_operation(
+                                "edit",
+                                tag_id=st.session_state.editing_tag['id'],
+                                name=edit_name,
+                                color=edit_color
+                            )
+                    with col_cancel:
+                        if st.form_submit_button("Cancel"):
+                            st.session_state.editing_tag = None
+            else:
+                st.markdown("#### Create New Tag")
+                with st.form("global_tag_form", clear_on_submit=True):
+                    new_tag_name = st.text_input("Tag name")
+                    new_tag_color = st.color_picker("Tag color", value='#808080')
+                    
+                    if st.form_submit_button(
+                        "Create Tag",
+                        use_container_width=True
+                    ):
+                        handle_tag_operation(
+                            "create",
+                            name=new_tag_name,
+                            color=new_tag_color
+                        )
+                        st.experimental_rerun()
 
 def delete_tag_handler(tag_id):
     """Handle tag deletion with proper state management"""
