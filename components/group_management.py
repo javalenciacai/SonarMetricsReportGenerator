@@ -23,34 +23,31 @@ def manage_project_groups(sonar_api):
 
 def manage_groups(sonar_api):
     """Interface for creating and managing project groups"""
+    # Create New Group Form
     st.markdown("### Create New Group")
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
+    with st.form(key="create_group_form"):
         group_name = st.text_input("Group Name")
-    with col2:
-        create_group = st.button("➕ Create Group")
-    
-    group_description = st.text_area("Group Description", height=100)
-    
-    if create_group and group_name:
-        group_id = create_project_group(group_name, group_description)
-        if group_id:
-            st.success(f"✅ Group '{group_name}' created successfully!")
-            st.rerun()
-        else:
-            st.error("Failed to create group")
+        group_description = st.text_area("Group Description", height=100)
+        create_group = st.form_submit_button("➕ Create Group")
+        
+        if create_group and group_name:
+            group_id = create_project_group(group_name, group_description)
+            if group_id:
+                st.success(f"✅ Group '{group_name}' created successfully!")
+                st.experimental_rerun()
+            else:
+                st.error("Failed to create group")
     
     st.markdown("### Assign Projects to Groups")
     
-    # Get all projects
+    # Get all projects and groups
     projects = sonar_api.get_projects()
+    groups = get_project_groups()
+    
     if not projects:
         st.warning("No projects found")
         return
     
-    # Get all groups
-    groups = get_project_groups()
     if not groups:
         st.warning("No groups created yet")
         return
@@ -59,35 +56,40 @@ def manage_groups(sonar_api):
     group_names = {str(group['id']): group['name'] for group in groups}
     group_names[''] = 'No Group'
     
-    # Create a selection widget for each project
-    st.markdown("#### Project Assignments")
-    
-    for project in projects:
-        col1, col2 = st.columns([3, 1])
-        with col1:
+    # Batch project assignments in a single form
+    with st.form(key="project_assignments_form"):
+        st.markdown("#### Project Assignments")
+        assignments = {}
+        
+        for project in projects:
             current_group = str(project.get('group_id', ''))
             new_group = st.selectbox(
                 f"📁 {project['name']}",
                 options=[''] + [str(g['id']) for g in groups],
                 format_func=lambda x: group_names[x],
-                key=f"group_select_{project['key']}"
+                key=f"group_select_{project['key']}",
+                index=[''] + [str(g['id']) for g in groups].index(current_group) if current_group else 0
             )
-        
-        with col2:
             if new_group != current_group:
-                if st.button("Save", key=f"save_{project['key']}"):
-                    if new_group:
-                        if assign_project_to_group(project['key'], int(new_group)):
-                            st.success("✅ Project assigned to group")
-                            st.rerun()
-                        else:
-                            st.error("Failed to assign project to group")
-                    else:
-                        if remove_project_from_group(project['key']):
-                            st.success("✅ Project removed from group")
-                            st.rerun()
-                        else:
-                            st.error("Failed to remove project from group")
+                assignments[project['key']] = new_group
+        
+        save_assignments = st.form_submit_button("Save All Changes")
+        
+        if save_assignments and assignments:
+            success = True
+            for project_key, group_id in assignments.items():
+                if group_id:
+                    if not assign_project_to_group(project_key, int(group_id)):
+                        success = False
+                        st.error(f"Failed to assign project {project_key} to group")
+                else:
+                    if not remove_project_from_group(project_key):
+                        success = False
+                        st.error(f"Failed to remove project {project_key} from group")
+            
+            if success:
+                st.success("✅ Project assignments updated successfully")
+                st.experimental_rerun()
 
 def display_grouped_metrics(sonar_api):
     """Display metrics grouped by project groups"""

@@ -1,6 +1,5 @@
 import streamlit as st
 from database.schema import store_update_preferences, get_update_preferences
-from services.scheduler import SchedulerService
 
 def get_interval_options():
     """Get available update interval options"""
@@ -35,29 +34,38 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
         (k for k, v in interval_options.items() if v == current_interval),
         '1 hour'
     )
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
+
+    # Use form to batch updates
+    with st.form(key=f"interval_settings_{entity_type}_{entity_id}"):
         new_interval = st.selectbox(
             "Select Update Interval",
             options=list(interval_options.keys()),
             index=list(interval_options.keys()).index(current_option),
-            help="Choose how often metrics should be updated"
+            help="Choose how often metrics should be updated",
+            key=f"interval_select_{entity_id}"
         )
-    
-    with col2:
-        if st.button("Apply", help="Save and apply the new update interval"):
+        
+        submit_button = st.form_submit_button(
+            "Apply Changes",
+            help="Save and apply the new update interval"
+        )
+        
+        if submit_button:
             try:
                 interval_seconds = interval_options[new_interval]
                 
-                # Convert string project key to integer ID if needed
+                # Handle entity ID conversion
+                numeric_id = None
                 if entity_type == 'repository':
-                    entity_id = int(entity_id) if str(entity_id).isdigit() else None
+                    if str(entity_id).isdigit():
+                        numeric_id = int(entity_id)
                 elif entity_type == 'group':
-                    entity_id = int(entity_id) if str(entity_id).isdigit() else None
+                    if str(entity_id).isdigit():
+                        numeric_id = int(entity_id)
+                    else:
+                        numeric_id = entity_id  # Group IDs are already numeric
 
-                if not entity_id:
+                if numeric_id is None:
                     st.error("❌ Invalid entity ID")
                     return
 
