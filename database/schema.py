@@ -38,45 +38,6 @@ def initialize_database():
     """
     execute_query(create_repository_tags_table)
 
-    # Add columns to repositories if they don't exist
-    alter_repositories = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='last_seen') THEN
-            ALTER TABLE repositories ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='is_marked_for_deletion') THEN
-            ALTER TABLE repositories ADD COLUMN is_marked_for_deletion BOOLEAN DEFAULT false;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='is_active') THEN
-            ALTER TABLE repositories ADD COLUMN is_active BOOLEAN DEFAULT true;
-        END IF;
-    END $$;
-    """
-    execute_query(alter_repositories)
-
-    # Create metrics table
-    create_metrics_table = """
-    CREATE TABLE IF NOT EXISTS metrics (
-        id SERIAL PRIMARY KEY,
-        repository_id INTEGER REFERENCES repositories(id),
-        bugs INTEGER DEFAULT 0,
-        vulnerabilities INTEGER DEFAULT 0,
-        code_smells INTEGER DEFAULT 0,
-        coverage FLOAT DEFAULT 0,
-        duplicated_lines_density FLOAT DEFAULT 0,
-        ncloc INTEGER DEFAULT 0,
-        sqale_index INTEGER DEFAULT 0,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """
-    execute_query(create_metrics_table)
-
     # Create policy acceptance table
     create_policy_table = """
     CREATE TABLE IF NOT EXISTS policy_acceptance (
@@ -88,24 +49,6 @@ def initialize_database():
     """
     execute_query(create_policy_table)
 
-    # Add columns to metrics if they don't exist
-    alter_metrics = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='metrics' AND column_name='ncloc') THEN
-            ALTER TABLE metrics ADD COLUMN ncloc INTEGER DEFAULT 0;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='metrics' AND column_name='sqale_index') THEN
-            ALTER TABLE metrics ADD COLUMN sqale_index INTEGER DEFAULT 0;
-        END IF;
-    END $$;
-    """
-    execute_query(alter_metrics)
-
-# Tag management functions
 def create_tag(name, color='#808080'):
     """Create a new tag with duplicate check"""
     # First check if tag exists
@@ -127,7 +70,7 @@ def create_tag(name, color='#808080'):
         """
         result = execute_query(insert_query, (name, color))
         if result:
-            return result[0][0], "Tag created successfully"
+            return result[0][0], "Tag created successfully"  # Return exactly two values
         return None, "Failed to create tag"
     except Exception as e:
         return None, f"Error creating tag: {str(e)}"
@@ -209,7 +152,6 @@ def delete_tag(tag_id):
         print(f"Error deleting tag: {str(e)}")
         return False
 
-# Policy management functions
 def check_policy_acceptance(user_token):
     """Check if a user has accepted the policies"""
     query = """

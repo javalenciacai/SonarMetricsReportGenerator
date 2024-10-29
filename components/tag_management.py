@@ -60,15 +60,13 @@ def display_project_tags(repo_key):
                     if add_tag_to_project(repo_key, selected_tag['id']):
                         st.success(f"Added tag: {selected_tag['name']}")
                         st.rerun()
-                    else:
-                        st.error("Failed to add tag")
             
             # Create new tag
             st.markdown("---")
             st.markdown("##### Create New Tag")
             new_tag_name = st.text_input("Tag name", key="new_tag_name")
             new_tag_color = st.color_picker("Tag color", value='#808080', key="new_tag_color")
-            
+
             def create_new_tag():
                 if not new_tag_name:
                     st.warning("Please enter a tag name")
