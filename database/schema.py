@@ -21,7 +21,7 @@ def initialize_database():
     """
     execute_query(create_repositories_table)
 
-    # Create tags table
+    # Create tags table with updated_at column
     create_tags_table = """
     CREATE TABLE IF NOT EXISTS tags (
         id SERIAL PRIMARY KEY,
@@ -32,6 +32,21 @@ def initialize_database():
     );
     """
     execute_query(create_tags_table)
+
+    # Add updated_at column if it doesn't exist
+    add_updated_at = """
+    DO $$ 
+    BEGIN 
+        IF NOT EXISTS (
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'tags' AND column_name = 'updated_at'
+        ) THEN
+            ALTER TABLE tags ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        END IF;
+    END $$;
+    """
+    execute_query(add_updated_at)
 
     # Create repository_tags table for many-to-many relationship
     create_repository_tags_table = """
@@ -55,81 +70,9 @@ def initialize_database():
     """
     execute_query(create_policy_table)
 
-def add_tag_to_project(repo_key, tag_id):
-    """Add a tag to a project with improved transaction handling and locking"""
-    logger.info(f"Attempting to add tag {tag_id} to project {repo_key}")
-    
-    try:
-        # Start transaction
-        execute_query("BEGIN")
-        
-        try:
-            # Lock the necessary tables in the correct order to prevent deadlocks
-            execute_query("LOCK TABLE repositories, repository_tags IN ACCESS EXCLUSIVE MODE")
-            
-            # Get repository ID with lock
-            repo_query = """
-            SELECT id FROM repositories 
-            WHERE repo_key = %s 
-            FOR UPDATE
-            """
-            repo_result = execute_query(repo_query, (repo_key,))
-            
-            if not repo_result:
-                execute_query("ROLLBACK")
-                logger.warning(f"Project {repo_key} not found")
-                return {"success": False, "status": "not_found"}
-            
-            repo_id = repo_result[0][0]
-            
-            # Check if tag is already assigned
-            check_query = """
-            SELECT EXISTS (
-                SELECT 1 
-                FROM repository_tags rt
-                WHERE rt.repository_id = %s AND rt.tag_id = %s
-                FOR UPDATE
-            )
-            """
-            result = execute_query(check_query, (repo_id, tag_id))
-            
-            if result[0][0]:  # Tag already exists
-                execute_query("COMMIT")
-                logger.info(f"Tag {tag_id} already assigned to project {repo_key}")
-                return {"success": True, "status": "already_exists"}
-            
-            # Insert the tag
-            insert_query = """
-            INSERT INTO repository_tags (repository_id, tag_id)
-            VALUES (%s, %s)
-            ON CONFLICT DO NOTHING
-            RETURNING repository_id
-            """
-            result = execute_query(insert_query, (repo_id, tag_id))
-            
-            # Commit the transaction
-            execute_query("COMMIT")
-            
-            if result:
-                logger.info(f"Successfully added tag {tag_id} to project {repo_key}")
-                return {"success": True, "status": "added"}
-            else:
-                logger.warning(f"Tag {tag_id} already exists for project {repo_key}")
-                return {"success": True, "status": "already_exists"}
-                
-        except Exception as inner_e:
-            execute_query("ROLLBACK")
-            raise inner_e
-            
-    except Exception as e:
-        error_msg = f"Error adding tag to project: {str(e)}"
-        logger.error(error_msg)
-        return {"success": False, "status": "error", "message": error_msg}
-
 def create_tag(name, color='#808080'):
-    """Create a new tag with duplicate check"""
+    """Create a new tag with improved transaction handling"""
     try:
-        # Start transaction
         execute_query("BEGIN")
         
         try:
@@ -148,8 +91,8 @@ def create_tag(name, color='#808080'):
 
             # Create new tag
             insert_query = """
-            INSERT INTO tags (name, color)
-            VALUES (%s, %s)
+            INSERT INTO tags (name, color, created_at, updated_at)
+            VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING id
             """
             result = execute_query(insert_query, (name, color))
@@ -168,7 +111,7 @@ def create_tag(name, color='#808080'):
         return None, f"Error creating tag: {str(e)}"
 
 def get_all_tags():
-    """Get all available tags"""
+    """Get all available tags with error handling"""
     query = """
     SELECT id, name, color, created_at, updated_at
     FROM tags
@@ -259,6 +202,77 @@ def get_project_tags(repo_key):
     except Exception as e:
         logger.error(f"Error getting project tags: {str(e)}")
         return []
+
+def add_tag_to_project(repo_key, tag_id):
+    """Add a tag to a project with improved transaction handling and locking"""
+    logger.info(f"Attempting to add tag {tag_id} to project {repo_key}")
+    
+    try:
+        # Start transaction
+        execute_query("BEGIN")
+        
+        try:
+            # Lock the necessary tables in the correct order to prevent deadlocks
+            execute_query("LOCK TABLE repositories, repository_tags IN ACCESS EXCLUSIVE MODE")
+            
+            # Get repository ID with lock
+            repo_query = """
+            SELECT id FROM repositories 
+            WHERE repo_key = %s 
+            FOR UPDATE
+            """
+            repo_result = execute_query(repo_query, (repo_key,))
+            
+            if not repo_result:
+                execute_query("ROLLBACK")
+                logger.warning(f"Project {repo_key} not found")
+                return {"success": False, "status": "not_found"}
+            
+            repo_id = repo_result[0][0]
+            
+            # Check if tag is already assigned
+            check_query = """
+            SELECT EXISTS (
+                SELECT 1 
+                FROM repository_tags rt
+                WHERE rt.repository_id = %s AND rt.tag_id = %s
+                FOR UPDATE
+            )
+            """
+            result = execute_query(check_query, (repo_id, tag_id))
+            
+            if result[0][0]:  # Tag already exists
+                execute_query("COMMIT")
+                logger.info(f"Tag {tag_id} already assigned to project {repo_key}")
+                return {"success": True, "status": "already_exists"}
+            
+            # Insert the tag
+            insert_query = """
+            INSERT INTO repository_tags (repository_id, tag_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            RETURNING repository_id
+            """
+            result = execute_query(insert_query, (repo_id, tag_id))
+            
+            # Commit the transaction
+            execute_query("COMMIT")
+            
+            if result:
+                logger.info(f"Successfully added tag {tag_id} to project {repo_key}")
+                return {"success": True, "status": "added"}
+            else:
+                logger.warning(f"Tag {tag_id} already exists for project {repo_key}")
+                return {"success": True, "status": "already_exists"}
+                
+        except Exception as inner_e:
+            execute_query("ROLLBACK")
+            raise inner_e
+            
+    except Exception as e:
+        error_msg = f"Error adding tag to project: {str(e)}"
+        logger.error(error_msg)
+        return {"success": False, "status": "error", "message": error_msg}
 
 def remove_tag_from_project(repo_key, tag_id):
     """Remove a tag from a project with improved error handling"""
