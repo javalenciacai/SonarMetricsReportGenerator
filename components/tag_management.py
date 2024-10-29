@@ -4,7 +4,7 @@ from database.schema import (
     add_tag_to_project, remove_tag_from_project, delete_tag
 )
 
-def render_tag_badge(tag, on_remove=None):
+def render_tag_badge(tag, repo_key=None, on_remove=None):
     """Render a styled tag badge"""
     html = f"""
         <div style="
@@ -20,10 +20,10 @@ def render_tag_badge(tag, on_remove=None):
         </div>
     """
     st.markdown(html, unsafe_allow_html=True)
-    if on_remove:
+    if on_remove and repo_key:
         if st.button("×", key=f"remove_tag_{tag['id']}", help="Remove tag"):
             with st.spinner("Removing tag..."):
-                if remove_tag_from_project(tag['id']):
+                if remove_tag_from_project(repo_key, tag['id']):
                     st.success("Tag removed successfully")
                     st.rerun()
                 else:
@@ -97,7 +97,7 @@ def display_project_tags(repo_key):
         if current_tags:
             st.markdown("Current tags:")
             for tag in current_tags:
-                render_tag_badge(tag, lambda tag_id=tag['id']: remove_tag_from_project(repo_key, tag_id))
+                render_tag_badge(tag, repo_key=repo_key, on_remove=True)
         else:
             st.info("No tags assigned to this project")
     

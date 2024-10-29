@@ -198,23 +198,58 @@ def get_project_tags(repo_key):
         return []
 
 def remove_tag_from_project(repo_key, tag_id):
-    """Remove a tag from a project"""
+    """Remove a tag from a project with improved error handling"""
+    logger.info(f"Attempting to remove tag {tag_id} from project {repo_key}")
+    
     try:
+        # Start transaction
         execute_query("BEGIN")
         
-        query = """
-        DELETE FROM repository_tags rt
-        USING repositories r
-        WHERE rt.repository_id = r.id
-        AND r.repo_key = %s
-        AND rt.tag_id = %s
-        """
-        execute_query(query, (repo_key, tag_id))
-        execute_query("COMMIT")
-        return True
+        try:
+            # Lock the tables in the correct order to prevent deadlocks
+            execute_query("LOCK TABLE repositories, repository_tags IN ACCESS EXCLUSIVE MODE")
+            
+            # Get repository ID with lock
+            repo_query = """
+            SELECT id FROM repositories 
+            WHERE repo_key = %s 
+            FOR UPDATE
+            """
+            repo_result = execute_query(repo_query, (repo_key,))
+            
+            if not repo_result:
+                execute_query("ROLLBACK")
+                logger.warning(f"Project {repo_key} not found")
+                return False
+            
+            repo_id = repo_result[0][0]
+            
+            # Delete the tag association
+            delete_query = """
+            DELETE FROM repository_tags 
+            WHERE repository_id = %s 
+            AND tag_id = %s
+            RETURNING tag_id
+            """
+            result = execute_query(delete_query, (repo_id, tag_id))
+            
+            if result:
+                # Commit the transaction
+                execute_query("COMMIT")
+                logger.info(f"Successfully removed tag {tag_id} from project {repo_key}")
+                return True
+            else:
+                execute_query("ROLLBACK")
+                logger.warning(f"Tag {tag_id} not found for project {repo_key}")
+                return False
+                
+        except Exception as inner_e:
+            execute_query("ROLLBACK")
+            raise inner_e
+            
     except Exception as e:
-        execute_query("ROLLBACK")
-        logger.error(f"Error removing tag from project: {str(e)}")
+        error_msg = f"Error removing tag from project: {str(e)}"
+        logger.error(error_msg)
         return False
 
 def delete_tag(tag_id):
