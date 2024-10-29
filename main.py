@@ -7,6 +7,7 @@ from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
+from components.group_management import manage_project_groups
 from database.schema import initialize_database
 import os
 from datetime import datetime, timedelta
@@ -125,19 +126,25 @@ def main():
             scheduler.start()
 
         sidebar = setup_sidebar()
+
+        with sidebar:
+            st.markdown("### 📊 Navigation")
+            view_mode = st.radio(
+                "Select View",
+                ["Individual Projects", "Project Groups"],
+                key="view_mode"
+            )
         
         token = os.getenv('SONARCLOUD_TOKEN') or st.text_input("Enter SonarCloud Token", type="password")
         if not token:
             st.warning("⚠️ Please enter your SonarCloud token to continue")
             return
 
-        # Store token in session state for policy acceptance
         st.session_state.sonar_token = token
 
         with st.sidebar:
             show_policies()
         
-        # Check policy acceptance from database
         if not get_policy_acceptance_status(token):
             st.warning("⚠️ Please read and accept the Data Usage Policies and Terms of Service to continue")
             return
@@ -154,195 +161,197 @@ def main():
         metrics_processor = MetricsProcessor()
         
         st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
-        
-        active_projects = sonar_api.get_projects()
-        if not active_projects:
-            st.warning("No active projects found in the organization")
-            return
-        
-        active_project_keys = [project['key'] for project in active_projects] if active_projects else []
-        
-        all_projects_status = metrics_processor.get_project_status()
-        
-        project_names = {}
-        if active_projects:
-            for project in active_projects:
-                project_names[project['key']] = f"✅ {project['name']}"
-        
-        for project in all_projects_status:
-            if not project['is_active']:
-                project_names[project['repo_key']] = f"⚠️ {project['name']} (Inactive)"
-        
-        project_names['all'] = "📊 All Projects"
-        
-        display_project_management(metrics_processor, active_project_keys)
-        
-        with sidebar:
-            st.markdown("### 🎯 Project Selection")
+
+        if view_mode == "Project Groups":
+            manage_project_groups(sonar_api)
+        else:
+            active_projects = sonar_api.get_projects()
+            if not active_projects:
+                st.warning("No active projects found in the organization")
+                return
             
-            new_project = st.selectbox(
-                "Select Project",
-                options=['all'] + list(project_names.keys())[:-1],
-                format_func=lambda x: project_names[x],
-                key="project_selector"
-            )
-
-            if new_project != st.session_state.get('selected_project'):
-                st.session_state.selected_project = new_project
-                handle_project_switch()
-
-            st.markdown("---")
-
-            if st.session_state.selected_project != 'all' and st.session_state.selected_project in active_project_keys:
-                st.markdown("### ⚙️ Automation Setup")
+            active_project_keys = [project['key'] for project in active_projects] if active_projects else []
+            
+            all_projects_status = metrics_processor.get_project_status()
+            
+            project_names = {}
+            if active_projects:
+                for project in active_projects:
+                    project_names[project['key']] = f"✅ {project['name']}"
+            
+            for project in all_projects_status:
+                if not project['is_active']:
+                    project_names[project['repo_key']] = f"⚠️ {project['name']} (Inactive)"
+            
+            project_names['all'] = "📊 All Projects"
+            
+            display_project_management(metrics_processor, active_project_keys)
+            
+            with sidebar:
+                st.markdown("### 🎯 Project Selection")
                 
-                try:
-                    smtp_status, smtp_message = report_generator.verify_smtp_connection()
-                    if smtp_status:
-                        st.success("✉️ Email Configuration: Connected")
-                    else:
-                        st.error(f"✉️ Email Configuration: {smtp_message}")
-                except Exception as e:
-                    st.error(f"✉️ Email Configuration Error: {str(e)}")
-                
-                email_recipients = st.text_input(
-                    "📧 Email Recipients",
-                    help="Enter email addresses (comma-separated) to receive reports and notifications"
+                new_project = st.selectbox(
+                    "Select Project",
+                    options=['all'] + list(project_names.keys())[:-1],
+                    format_func=lambda x: project_names[x],
+                    key="project_selector"
                 )
 
-                if email_recipients:
-                    if st.button("🔄 Setup Automation"):
-                        recipients_list = [email.strip() for email in email_recipients.split(",")]
-                        
-                        with st.spinner("⏳ Testing report generation and email sending..."):
-                            report_data, gen_message = report_generator.generate_project_report(st.session_state.selected_project, 'daily')
-                            if report_data:
-                                success, send_message = report_generator.send_report_email(report_data, recipients_list)
-                                if success:
-                                    if setup_automated_reports(sonar_api, st.session_state.selected_project, recipients_list):
-                                        st.success("""
-                                            ✅ Setup successful!
-                                            - 📧 Test email sent
-                                            - 📅 Daily reports: 1:00 AM
-                                            - 📅 Weekly reports: Monday 2:00 AM
-                                            - 🔔 Change notifications: Every 4 hours
-                                        """)
-                                else:
-                                    st.error(f"❌ Failed to send test email: {send_message}")
-                            else:
-                                st.error(f"❌ Failed to generate test report: {gen_message}")
+                if new_project != st.session_state.get('selected_project'):
+                    st.session_state.selected_project = new_project
+                    handle_project_switch()
 
-        # Display the appropriate view based on project selection
-        if st.session_state.selected_project == 'all':
-            st.markdown("## 📊 Multi-Project Overview")
-            
-            show_inactive = st.checkbox(
-                "🔍 Show Inactive Projects",
-                value=st.session_state.show_inactive_projects,
-                help="Toggle to show/hide inactive projects in the overview",
-                key="inactive_projects_filter"
-            )
-            st.session_state.show_inactive_projects = show_inactive
-            
-            all_project_metrics = {}
-            
-            for project_key in active_project_keys:
-                metrics = sonar_api.get_project_metrics(project_key)
-                if metrics:
-                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                    all_project_metrics[project_key] = {
-                        'name': project_names[project_key].replace('✅ ', ''),
-                        'metrics': metrics_dict
-                    }
-                    MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
+                st.markdown("---")
 
-            if show_inactive:
-                for project in all_projects_status:
-                    if not project['is_active']:
-                        latest_metrics = project.get('latest_metrics')
-                        if latest_metrics:
-                            metrics_dict = {
-                                'bugs': float(latest_metrics['bugs']),
-                                'vulnerabilities': float(latest_metrics['vulnerabilities']),
-                                'code_smells': float(latest_metrics['code_smells']),
-                                'coverage': float(latest_metrics['coverage']),
-                                'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
-                                'ncloc': float(latest_metrics['ncloc']),
-                                'sqale_index': float(latest_metrics['sqale_index'])
-                            }
-                            all_project_metrics[project['repo_key']] = {
-                                'name': f"{project['name']} (Inactive)",
-                                'metrics': metrics_dict,
-                                'is_inactive': True
-                            }
-
-            if all_project_metrics:
-                display_multi_project_metrics(all_project_metrics)
-                plot_multi_project_comparison(all_project_metrics)
-            else:
-                if show_inactive:
-                    st.warning("No projects found (active or inactive)")
-                else:
-                    st.warning("No active projects found")
-        else:
-            try:
-                is_inactive = st.session_state.selected_project not in active_project_keys
-                
-                if is_inactive:
-                    st.warning(f"⚠️ This project is currently inactive. Showing historical data only.")
+                if st.session_state.selected_project != 'all' and st.session_state.selected_project in active_project_keys:
+                    st.markdown("### ⚙️ Automation Setup")
                     
-                    latest_metrics = metrics_processor.get_latest_metrics(st.session_state.selected_project)
-                    if latest_metrics:
-                        tab1, tab2 = st.tabs(["📊 Last Available Metrics", "📈 Historical Data"])
-                        
-                        with tab1:
-                            st.info(f"⏰ Last updated: {latest_metrics['last_seen']}")
-                            st.info(f"⌛ Inactive for: {latest_metrics['inactive_duration'].days} days")
+                    try:
+                        smtp_status, smtp_message = report_generator.verify_smtp_connection()
+                        if smtp_status:
+                            st.success("✉️ Email Configuration: Connected")
+                        else:
+                            st.error(f"✉️ Email Configuration: {smtp_message}")
+                    except Exception as e:
+                        st.error(f"✉️ Email Configuration Error: {str(e)}")
+                    
+                    email_recipients = st.text_input(
+                        "📧 Email Recipients",
+                        help="Enter email addresses (comma-separated) to receive reports and notifications"
+                    )
+
+                    if email_recipients:
+                        if st.button("🔄 Setup Automation"):
+                            recipients_list = [email.strip() for email in email_recipients.split(",")]
                             
-                            metrics_dict = {
-                                'bugs': float(latest_metrics['bugs']),
-                                'vulnerabilities': float(latest_metrics['vulnerabilities']),
-                                'code_smells': float(latest_metrics['code_smells']),
-                                'coverage': float(latest_metrics['coverage']),
-                                'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
-                                'ncloc': float(latest_metrics['ncloc']),
-                                'sqale_index': float(latest_metrics['sqale_index'])
-                            }
-                            display_current_metrics(metrics_dict)
-                        
-                        with tab2:
-                            historical_data = metrics_processor.get_historical_data(st.session_state.selected_project)
-                            if historical_data:
-                                st.markdown("### 📈 Historical Data Analysis")
-                                plot_metrics_history(historical_data)
-                                display_metric_trends(historical_data)
-                                create_download_report(historical_data)
-                    else:
-                        st.info("No historical data available for this inactive project.")
-                else:
-                    metrics = sonar_api.get_project_metrics(st.session_state.selected_project)
+                            with st.spinner("⏳ Testing report generation and email sending..."):
+                                report_data, gen_message = report_generator.generate_project_report(st.session_state.selected_project, 'daily')
+                                if report_data:
+                                    success, send_message = report_generator.send_report_email(report_data, recipients_list)
+                                    if success:
+                                        if setup_automated_reports(sonar_api, st.session_state.selected_project, recipients_list):
+                                            st.success("""
+                                                ✅ Setup successful!
+                                                - 📧 Test email sent
+                                                - 📅 Daily reports: 1:00 AM
+                                                - 📅 Weekly reports: Monday 2:00 AM
+                                                - 🔔 Change notifications: Every 4 hours
+                                            """)
+                                    else:
+                                        st.error(f"❌ Failed to send test email: {send_message}")
+                                else:
+                                    st.error(f"❌ Failed to generate test report: {gen_message}")
+
+            if st.session_state.selected_project == 'all':
+                st.markdown("## 📊 Multi-Project Overview")
+                
+                show_inactive = st.checkbox(
+                    "🔍 Show Inactive Projects",
+                    value=st.session_state.show_inactive_projects,
+                    help="Toggle to show/hide inactive projects in the overview",
+                    key="inactive_projects_filter"
+                )
+                st.session_state.show_inactive_projects = show_inactive
+                
+                all_project_metrics = {}
+                
+                for project_key in active_project_keys:
+                    metrics = sonar_api.get_project_metrics(project_key)
                     if metrics:
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                        MetricsProcessor.store_metrics(st.session_state.selected_project, project_names[st.session_state.selected_project], metrics_dict)
+                        all_project_metrics[project_key] = {
+                            'name': project_names[project_key].replace('✅ ', ''),
+                            'metrics': metrics_dict
+                        }
+                        MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
 
-                        tab1, tab2 = st.tabs(["📊 Executive Dashboard", "📈 Trend Analysis"])
+                if show_inactive:
+                    for project in all_projects_status:
+                        if not project['is_active']:
+                            latest_metrics = project.get('latest_metrics')
+                            if latest_metrics:
+                                metrics_dict = {
+                                    'bugs': float(latest_metrics['bugs']),
+                                    'vulnerabilities': float(latest_metrics['vulnerabilities']),
+                                    'code_smells': float(latest_metrics['code_smells']),
+                                    'coverage': float(latest_metrics['coverage']),
+                                    'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
+                                    'ncloc': float(latest_metrics['ncloc']),
+                                    'sqale_index': float(latest_metrics['sqale_index'])
+                                }
+                                all_project_metrics[project['repo_key']] = {
+                                    'name': f"{project['name']} (Inactive)",
+                                    'metrics': metrics_dict,
+                                    'is_inactive': True
+                                }
+
+                if all_project_metrics:
+                    display_multi_project_metrics(all_project_metrics)
+                    plot_multi_project_comparison(all_project_metrics)
+                else:
+                    if show_inactive:
+                        st.warning("No projects found (active or inactive)")
+                    else:
+                        st.warning("No active projects found")
+            else:
+                try:
+                    is_inactive = st.session_state.selected_project not in active_project_keys
+                    
+                    if is_inactive:
+                        st.warning(f"⚠️ This project is currently inactive. Showing historical data only.")
                         
-                        with tab1:
-                            display_current_metrics(metrics_dict)
+                        latest_metrics = metrics_processor.get_latest_metrics(st.session_state.selected_project)
+                        if latest_metrics:
+                            tab1, tab2 = st.tabs(["📊 Last Available Metrics", "📈 Historical Data"])
                             
-                            st.markdown("### 📋 Historical Overview")
-                            historical_data = MetricsProcessor.get_historical_data(st.session_state.selected_project)
-                            plot_metrics_history(historical_data)
-                        
-                        with tab2:
-                            if historical_data:
-                                display_metric_trends(historical_data)
-                                create_download_report(historical_data)
-                            else:
-                                st.warning("⚠️ No historical data available for trend analysis")
-            except Exception as e:
-                st.error(f"Error displaying project data: {str(e)}")
-                reset_project_state()
+                            with tab1:
+                                st.info(f"⏰ Last updated: {latest_metrics['last_seen']}")
+                                st.info(f"⌛ Inactive for: {latest_metrics['inactive_duration'].days} days")
+                                
+                                metrics_dict = {
+                                    'bugs': float(latest_metrics['bugs']),
+                                    'vulnerabilities': float(latest_metrics['vulnerabilities']),
+                                    'code_smells': float(latest_metrics['code_smells']),
+                                    'coverage': float(latest_metrics['coverage']),
+                                    'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
+                                    'ncloc': float(latest_metrics['ncloc']),
+                                    'sqale_index': float(latest_metrics['sqale_index'])
+                                }
+                                display_current_metrics(metrics_dict)
+                            
+                            with tab2:
+                                historical_data = metrics_processor.get_historical_data(st.session_state.selected_project)
+                                if historical_data:
+                                    st.markdown("### 📈 Historical Data Analysis")
+                                    plot_metrics_history(historical_data)
+                                    display_metric_trends(historical_data)
+                                    create_download_report(historical_data)
+                        else:
+                            st.info("No historical data available for this inactive project.")
+                    else:
+                        metrics = sonar_api.get_project_metrics(st.session_state.selected_project)
+                        if metrics:
+                            metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                            MetricsProcessor.store_metrics(st.session_state.selected_project, project_names[st.session_state.selected_project], metrics_dict)
+
+                            tab1, tab2 = st.tabs(["📊 Executive Dashboard", "📈 Trend Analysis"])
+                            
+                            with tab1:
+                                display_current_metrics(metrics_dict)
+                                
+                                st.markdown("### 📋 Historical Overview")
+                                historical_data = MetricsProcessor.get_historical_data(st.session_state.selected_project)
+                                plot_metrics_history(historical_data)
+                            
+                            with tab2:
+                                if historical_data:
+                                    display_metric_trends(historical_data)
+                                    create_download_report(historical_data)
+                                else:
+                                    st.warning("⚠️ No historical data available for trend analysis")
+                except Exception as e:
+                    st.error(f"Error displaying project data: {str(e)}")
+                    reset_project_state()
 
     except Exception as e:
         st.error(f"Application error: {str(e)}")

@@ -11,10 +11,22 @@ def initialize_database():
         is_active BOOLEAN DEFAULT true,
         is_marked_for_deletion BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        group_id INTEGER
     );
     """
     execute_query(create_repositories_table)
+
+    # Create project groups table
+    create_groups_table = """
+    CREATE TABLE IF NOT EXISTS project_groups (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    execute_query(create_groups_table)
 
     # Add columns to repositories if they don't exist
     alter_repositories = """
@@ -33,6 +45,11 @@ def initialize_database():
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
                       WHERE table_name='repositories' AND column_name='is_active') THEN
             ALTER TABLE repositories ADD COLUMN is_active BOOLEAN DEFAULT true;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                      WHERE table_name='repositories' AND column_name='group_id') THEN
+            ALTER TABLE repositories ADD COLUMN group_id INTEGER REFERENCES project_groups(id);
         END IF;
     END $$;
     """
@@ -66,23 +83,6 @@ def initialize_database():
     """
     execute_query(create_policy_table)
 
-    # Add columns to metrics if they don't exist
-    alter_metrics = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='metrics' AND column_name='ncloc') THEN
-            ALTER TABLE metrics ADD COLUMN ncloc INTEGER DEFAULT 0;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='metrics' AND column_name='sqale_index') THEN
-            ALTER TABLE metrics ADD COLUMN sqale_index INTEGER DEFAULT 0;
-        END IF;
-    END $$;
-    """
-    execute_query(alter_metrics)
-
 def mark_project_for_deletion(repo_key):
     """Mark a project for deletion"""
     mark_query = """
@@ -111,11 +111,11 @@ def unmark_project_for_deletion(repo_key):
 
 def delete_project_data(repo_key):
     """Delete all data for a specific project that is marked for deletion"""
-    # First check if the project is marked for deletion
-    check_query = """
-    SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
-    """
     try:
+        # First check if the project is marked for deletion
+        check_query = """
+        SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
+        """
         result = execute_query(check_query, (repo_key,))
         if not result or not result[0][0]:
             return False, "Project must be marked for deletion first"
@@ -166,4 +166,60 @@ def store_policy_acceptance(user_token):
         return True
     except Exception as e:
         print(f"Error storing policy acceptance: {str(e)}")
+        return False
+
+def create_project_group(name, description):
+    """Create a new project group"""
+    query = """
+    INSERT INTO project_groups (name, description)
+    VALUES (%s, %s)
+    RETURNING id;
+    """
+    try:
+        result = execute_query(query, (name, description))
+        return result[0][0] if result else None
+    except Exception as e:
+        print(f"Error creating project group: {str(e)}")
+        return None
+
+def get_project_groups():
+    """Get all project groups"""
+    query = """
+    SELECT id, name, description, created_at
+    FROM project_groups
+    ORDER BY name;
+    """
+    try:
+        result = execute_query(query)
+        return [dict(row) for row in result] if result else []
+    except Exception as e:
+        print(f"Error getting project groups: {str(e)}")
+        return []
+
+def assign_project_to_group(repo_key, group_id):
+    """Assign a project to a group"""
+    query = """
+    UPDATE repositories
+    SET group_id = %s
+    WHERE repo_key = %s;
+    """
+    try:
+        execute_query(query, (group_id, repo_key))
+        return True
+    except Exception as e:
+        print(f"Error assigning project to group: {str(e)}")
+        return False
+
+def remove_project_from_group(repo_key):
+    """Remove a project from its group"""
+    query = """
+    UPDATE repositories
+    SET group_id = NULL
+    WHERE repo_key = %s;
+    """
+    try:
+        execute_query(query, (repo_key,))
+        return True
+    except Exception as e:
+        print(f"Error removing project from group: {str(e)}")
         return False
