@@ -107,17 +107,36 @@ def get_project_tags(repo_key):
         return []
 
 def add_tag_to_project(repo_key, tag_id):
-    """Add a tag to a project"""
-    query = """
-    INSERT INTO repository_tags (repository_id, tag_id)
-    SELECT r.id, %s
-    FROM repositories r
-    WHERE r.repo_key = %s
-    ON CONFLICT DO NOTHING
-    RETURNING repository_id;
+    """Add a tag to a project with improved duplicate handling"""
+    # First check if the tag is already assigned to the project
+    check_query = """
+    SELECT EXISTS (
+        SELECT 1 
+        FROM repository_tags rt
+        JOIN repositories r ON r.id = rt.repository_id
+        WHERE r.repo_key = %s AND rt.tag_id = %s
+    );
     """
     try:
-        result = execute_query(query, (tag_id, repo_key))
+        result = execute_query(check_query, (repo_key, tag_id))
+        if result[0][0]:  # Tag is already assigned
+            return True  # Return success since the desired state is achieved
+        
+        # If tag is not assigned, add it using a transaction
+        insert_query = """
+        WITH repo AS (
+            SELECT id FROM repositories WHERE repo_key = %s
+        )
+        INSERT INTO repository_tags (repository_id, tag_id)
+        SELECT repo.id, %s
+        FROM repo
+        WHERE NOT EXISTS (
+            SELECT 1 FROM repository_tags rt 
+            WHERE rt.repository_id = repo.id AND rt.tag_id = %s
+        )
+        RETURNING repository_id;
+        """
+        result = execute_query(insert_query, (repo_key, tag_id, tag_id))
         return bool(result)
     except Exception as e:
         print(f"Error adding tag to project: {str(e)}")
