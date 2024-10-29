@@ -137,6 +137,7 @@ def main():
                         scheduler
                     )
         else:
+            # Individual Projects View
             active_projects = sonar_api.get_projects()
             if not active_projects:
                 st.warning("No active projects found in the organization")
@@ -156,13 +157,62 @@ def main():
             
             project_names['all'] = "📊 All Projects"
             
-            # Rest of the existing code for project view...
-            if st.session_state.selected_project != 'all':
+            # Project selection in sidebar
+            with sidebar:
+                st.markdown("### 🔍 Project Selection")
+                show_inactive = st.checkbox("Show Inactive Projects", value=st.session_state.show_inactive_projects)
+                
+                # Filter projects based on active/inactive selection
+                filtered_projects = {k: v for k, v in project_names.items()}
+                if not show_inactive:
+                    filtered_projects = {k: v for k, v in filtered_projects.items() 
+                                      if 'Inactive' not in v or k == 'all'}
+
+                selected_project = st.selectbox(
+                    "Select Project",
+                    options=list(filtered_projects.keys()),
+                    format_func=lambda x: filtered_projects.get(x, x),
+                    key='selected_project',
+                    on_change=handle_project_switch
+                )
+
+            if selected_project == 'all':
+                st.markdown("## 📊 All Projects Overview")
+                projects_data = {}
+                for project in active_projects:
+                    metrics = sonar_api.get_project_metrics(project['key'])
+                    if metrics:
+                        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                        projects_data[project['key']] = {
+                            'name': project['name'],
+                            'metrics': metrics_dict
+                        }
+                
+                if projects_data:
+                    display_multi_project_metrics(projects_data)
+                    plot_multi_project_comparison(projects_data)
+                    create_download_report(projects_data)
+            else:
+                st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
+                metrics = sonar_api.get_project_metrics(selected_project)
+                
+                if metrics:
+                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                    display_current_metrics(metrics_dict)
+                    
+                    historical_data = metrics_processor.get_historical_data(selected_project)
+                    if historical_data:
+                        plot_metrics_history(historical_data)
+                        display_metric_trends(historical_data)
+                        create_download_report(historical_data)
+
+            # Display interval settings for individual project
+            if selected_project and selected_project != 'all':
                 st.sidebar.markdown("---")
                 with st.sidebar:
                     display_interval_settings(
                         'repository',
-                        st.session_state.selected_project,
+                        selected_project,
                         scheduler
                     )
 

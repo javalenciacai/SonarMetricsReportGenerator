@@ -12,13 +12,12 @@ def initialize_database():
         is_marked_for_deletion BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        group_id INTEGER,
+        group_id INTEGER REFERENCES project_groups(id),
         update_interval INTEGER DEFAULT 3600
     );
     """
-    execute_query(create_repositories_table)
 
-    # Create project groups table
+    # Create project groups table first (since repositories references it)
     create_groups_table = """
     CREATE TABLE IF NOT EXISTS project_groups (
         id SERIAL PRIMARY KEY,
@@ -29,6 +28,7 @@ def initialize_database():
     );
     """
     execute_query(create_groups_table)
+    execute_query(create_repositories_table)
 
     # Create update_preferences table
     create_update_preferences_table = """
@@ -73,26 +73,30 @@ def initialize_database():
 
 def store_update_preferences(entity_type, entity_id, interval):
     """Store update interval preferences"""
-    # Validate inputs
-    if not entity_type or not entity_id or not interval:
-        return False
-
-    if entity_type not in ('repository', 'group'):
-        return False
-
     try:
-        entity_id = int(entity_id)
-        interval = int(interval)
-    except (TypeError, ValueError):
-        return False
+        # For repositories, convert repo_key to id
+        if entity_type == 'repository':
+            query = "SELECT id FROM repositories WHERE repo_key = %s;"
+            result = execute_query(query, (str(entity_id),))
+            if result:
+                entity_id = result[0][0]
+            else:
+                return False
 
-    query = """
-    INSERT INTO update_preferences (entity_type, entity_id, update_interval)
-    VALUES (%s, %s, %s)
-    ON CONFLICT (entity_type, entity_id) 
-    DO UPDATE SET update_interval = EXCLUDED.update_interval;
-    """
-    try:
+        # For groups, verify group exists
+        elif entity_type == 'group':
+            query = "SELECT id FROM project_groups WHERE id = %s;"
+            result = execute_query(query, (int(entity_id),))
+            if not result:
+                return False
+
+        # Store preferences
+        query = """
+        INSERT INTO update_preferences (entity_type, entity_id, update_interval)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (entity_type, entity_id) 
+        DO UPDATE SET update_interval = EXCLUDED.update_interval;
+        """
         execute_query(query, (entity_type, entity_id, interval))
         return True
     except Exception as e:
@@ -101,21 +105,21 @@ def store_update_preferences(entity_type, entity_id, interval):
 
 def get_update_preferences(entity_type, entity_id):
     """Get update interval preferences"""
-    # Validate inputs
-    if not entity_type or not entity_id:
-        return {'update_interval': 3600, 'last_update': None}
-
     try:
-        entity_id = int(entity_id)
-    except (TypeError, ValueError):
-        return {'update_interval': 3600, 'last_update': None}
+        # For repositories, convert repo_key to id
+        if entity_type == 'repository':
+            query = "SELECT id FROM repositories WHERE repo_key = %s;"
+            result = execute_query(query, (str(entity_id),))
+            if result:
+                entity_id = result[0][0]
+            else:
+                return {'update_interval': 3600, 'last_update': None}
 
-    query = """
-    SELECT update_interval, last_update
-    FROM update_preferences
-    WHERE entity_type = %s AND entity_id = %s;
-    """
-    try:
+        query = """
+        SELECT update_interval, last_update
+        FROM update_preferences
+        WHERE entity_type = %s AND entity_id = %s;
+        """
         result = execute_query(query, (entity_type, entity_id))
         return dict(result[0]) if result else {'update_interval': 3600, 'last_update': None}
     except Exception as e:
@@ -124,21 +128,21 @@ def get_update_preferences(entity_type, entity_id):
 
 def update_last_update_time(entity_type, entity_id):
     """Update the last update timestamp"""
-    # Validate inputs
-    if not entity_type or not entity_id:
-        return False
-
     try:
-        entity_id = int(entity_id)
-    except (TypeError, ValueError):
-        return False
+        # For repositories, convert repo_key to id
+        if entity_type == 'repository':
+            query = "SELECT id FROM repositories WHERE repo_key = %s;"
+            result = execute_query(query, (str(entity_id),))
+            if result:
+                entity_id = result[0][0]
+            else:
+                return False
 
-    query = """
-    UPDATE update_preferences 
-    SET last_update = CURRENT_TIMESTAMP
-    WHERE entity_type = %s AND entity_id = %s;
-    """
-    try:
+        query = """
+        UPDATE update_preferences 
+        SET last_update = CURRENT_TIMESTAMP
+        WHERE entity_type = %s AND entity_id = %s;
+        """
         execute_query(query, (entity_type, entity_id))
         return True
     except Exception as e:
@@ -189,7 +193,16 @@ def delete_project_data(repo_key):
         """
         execute_query(delete_metrics_query, (repo_key,))
 
-        # Then delete the repository
+        # Then delete from update_preferences
+        delete_prefs_query = """
+        DELETE FROM update_preferences
+        WHERE entity_type = 'repository' AND entity_id = (
+            SELECT id FROM repositories WHERE repo_key = %s
+        );
+        """
+        execute_query(delete_prefs_query, (repo_key,))
+
+        # Finally delete the repository
         delete_repo_query = """
         DELETE FROM repositories
         WHERE repo_key = %s;
@@ -239,7 +252,13 @@ def create_project_group(name, description):
     """
     try:
         result = execute_query(query, (name, description))
-        return result[0][0] if result else None
+        group_id = result[0][0] if result else None
+        
+        if group_id:
+            # Initialize update preferences for the new group
+            store_update_preferences('group', group_id, 3600)
+            return group_id
+        return None
     except Exception as e:
         print(f"Error creating project group: {str(e)}")
         return None
@@ -247,9 +266,11 @@ def create_project_group(name, description):
 def get_project_groups():
     """Get all project groups"""
     query = """
-    SELECT id, name, description, created_at
-    FROM project_groups
-    ORDER BY name;
+    SELECT g.id, g.name, g.description, g.created_at,
+           p.update_interval, p.last_update
+    FROM project_groups g
+    LEFT JOIN update_preferences p ON p.entity_type = 'group' AND p.entity_id = g.id
+    ORDER BY g.name;
     """
     try:
         result = execute_query(query)
@@ -263,11 +284,12 @@ def assign_project_to_group(repo_key, group_id):
     query = """
     UPDATE repositories
     SET group_id = %s
-    WHERE repo_key = %s;
+    WHERE repo_key = %s
+    RETURNING id;
     """
     try:
-        execute_query(query, (group_id, repo_key))
-        return True
+        result = execute_query(query, (group_id, repo_key))
+        return bool(result)
     except Exception as e:
         print(f"Error assigning project to group: {str(e)}")
         return False
