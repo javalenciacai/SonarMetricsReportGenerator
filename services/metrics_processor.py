@@ -1,75 +1,152 @@
 import pandas as pd
 from database.connection import execute_query
 from datetime import datetime, timedelta
+from functools import lru_cache
+import logging
+import json
 
 class MetricsProcessor:
+    _cache = {}  # Class-level cache for database results
+    _cache_ttl = 300  # 5 minutes cache TTL
+    _last_db_operation = 0  # Timestamp of last database operation
+    _db_operation_interval = 0.1  # 100ms between database operations
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+
+    @classmethod
+    def _get_cache_key(cls, operation, *args, **kwargs):
+        """Generate a unique cache key"""
+        return f"{operation}:{json.dumps(args, sort_keys=True)}:{json.dumps(kwargs, sort_keys=True)}"
+
+    @classmethod
+    def _get_cached_result(cls, cache_key):
+        """Get result from cache if valid"""
+        if cache_key in cls._cache:
+            timestamp, result = cls._cache[cache_key]
+            if datetime.now().timestamp() - timestamp < cls._cache_ttl:
+                return result
+            del cls._cache[cache_key]
+        return None
+
+    @classmethod
+    def _set_cached_result(cls, cache_key, result):
+        """Store result in cache"""
+        cls._cache[cache_key] = (datetime.now().timestamp(), result)
+        # Clean old cache entries
+        current_time = datetime.now().timestamp()
+        cls._cache = {k: v for k, v in cls._cache.items() 
+                     if current_time - v[0] < cls._cache_ttl}
+
     @staticmethod
     def store_metrics(repo_key, name, metrics):
-        """Store metrics and track project existence"""
+        """Store metrics and track project existence with batch processing"""
         try:
-            # Store repository and update last_seen timestamp
-            repo_query = """
-            INSERT INTO repositories (repo_key, name, last_seen, is_active)
-            VALUES (%s, %s, CURRENT_TIMESTAMP, true)
-            ON CONFLICT (repo_key) DO UPDATE
-            SET name = EXCLUDED.name,
-                last_seen = CURRENT_TIMESTAMP,
-                is_active = true
-            RETURNING id;
-            """
-            result = execute_query(repo_query, (repo_key, name))
-            if not result:
-                raise Exception("Failed to get repository ID")
-            repo_id = result[0][0]
+            # Start transaction for atomic operations
+            execute_query("BEGIN")
+            
+            try:
+                # Store repository and update last_seen timestamp
+                repo_query = """
+                INSERT INTO repositories (repo_key, name, last_seen, is_active)
+                VALUES (%s, %s, CURRENT_TIMESTAMP, true)
+                ON CONFLICT (repo_key) DO UPDATE
+                SET name = EXCLUDED.name,
+                    last_seen = CURRENT_TIMESTAMP,
+                    is_active = true
+                RETURNING id;
+                """
+                result = execute_query(repo_query, (repo_key, name))
+                if not result:
+                    raise Exception("Failed to get repository ID")
+                repo_id = result[0][0]
 
-            # Store metrics with all required columns
-            metrics_query = """
-            INSERT INTO metrics (
-                repository_id, bugs, vulnerabilities, code_smells,
-                coverage, duplicated_lines_density, ncloc, sqale_index,
-                timestamp
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
-            """
-            metrics_data = (
-                repo_id,
-                float(metrics.get('bugs', 0)),
-                float(metrics.get('vulnerabilities', 0)),
-                float(metrics.get('code_smells', 0)),
-                float(metrics.get('coverage', 0)),
-                float(metrics.get('duplicated_lines_density', 0)),
-                float(metrics.get('ncloc', 0)),
-                float(metrics.get('sqale_index', 0))
-            )
-            execute_query(metrics_query, metrics_data)
-            return True
+                # Store metrics with all required columns
+                metrics_query = """
+                INSERT INTO metrics (
+                    repository_id, bugs, vulnerabilities, code_smells,
+                    coverage, duplicated_lines_density, ncloc, sqale_index,
+                    timestamp
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
+                """
+                metrics_data = (
+                    repo_id,
+                    float(metrics.get('bugs', 0)),
+                    float(metrics.get('vulnerabilities', 0)),
+                    float(metrics.get('code_smells', 0)),
+                    float(metrics.get('coverage', 0)),
+                    float(metrics.get('duplicated_lines_density', 0)),
+                    float(metrics.get('ncloc', 0)),
+                    float(metrics.get('sqale_index', 0))
+                )
+                execute_query(metrics_query, metrics_data)
+                
+                # Commit transaction
+                execute_query("COMMIT")
+                
+                # Clear relevant cache entries
+                cache_keys_to_clear = [k for k in MetricsProcessor._cache.keys() 
+                                     if repo_key in k]
+                for key in cache_keys_to_clear:
+                    MetricsProcessor._cache.pop(key, None)
+                
+                return True
+                
+            except Exception as inner_e:
+                execute_query("ROLLBACK")
+                raise inner_e
+                
         except Exception as e:
-            print(f"Error storing metrics: {str(e)}")
+            MetricsProcessor().logger.error(f"Error storing metrics: {str(e)}")
             return False
 
-    @staticmethod
-    def get_historical_data(repo_key):
-        """Get historical metrics data for a specific project"""
-        query = """
-        SELECT 
-            m.bugs, 
-            m.vulnerabilities, 
-            m.code_smells, 
-            m.coverage, 
-            m.duplicated_lines_density,
-            m.ncloc,
-            m.sqale_index,
-            m.timestamp::text as timestamp
-        FROM metrics m
-        JOIN repositories r ON r.id = m.repository_id
-        WHERE r.repo_key = %s
-        ORDER BY m.timestamp DESC;
-        """
-        result = execute_query(query, (repo_key,))
-        return [dict(row) for row in result] if result else []
+    @classmethod
+    def get_historical_data(cls, repo_key):
+        """Get historical metrics data for a specific project with caching"""
+        cache_key = cls._get_cache_key("historical_data", repo_key)
+        cached_result = cls._get_cached_result(cache_key)
+        if cached_result is not None:
+            return cached_result
 
-    @staticmethod
-    def get_latest_metrics(repo_key):
-        """Get the most recent metrics for a project"""
+        query = """
+        WITH recent_metrics AS (
+            SELECT 
+                m.bugs, 
+                m.vulnerabilities, 
+                m.code_smells, 
+                m.coverage, 
+                m.duplicated_lines_density,
+                m.ncloc,
+                m.sqale_index,
+                m.timestamp::text as timestamp,
+                ROW_NUMBER() OVER (ORDER BY m.timestamp DESC) as rn
+            FROM metrics m
+            JOIN repositories r ON r.id = m.repository_id
+            WHERE r.repo_key = %s
+            ORDER BY m.timestamp DESC
+        )
+        SELECT * FROM recent_metrics
+        WHERE rn <= 1000;  -- Limit to last 1000 records for performance
+        """
+        
+        try:
+            result = execute_query(query, (repo_key,))
+            data = [dict(row) for row in result] if result else []
+            cls._set_cached_result(cache_key, data)
+            return data
+        except Exception as e:
+            MetricsProcessor().logger.error(f"Error fetching historical data: {str(e)}")
+            return []
+
+    @classmethod
+    def get_latest_metrics(cls, repo_key):
+        """Get the most recent metrics for a project with caching"""
+        cache_key = cls._get_cache_key("latest_metrics", repo_key)
+        cached_result = cls._get_cached_result(cache_key)
+        if cached_result is not None:
+            return cached_result
+
         query = """
         SELECT 
             m.bugs, 
@@ -89,137 +166,66 @@ class MetricsProcessor:
         ORDER BY m.timestamp DESC
         LIMIT 1;
         """
-        result = execute_query(query, (repo_key,))
-        return dict(result[0]) if result else None
+        
+        try:
+            result = execute_query(query, (repo_key,))
+            data = dict(result[0]) if result else None
+            cls._set_cached_result(cache_key, data)
+            return data
+        except Exception as e:
+            MetricsProcessor().logger.error(f"Error fetching latest metrics: {str(e)}")
+            return None
 
-    @staticmethod
-    def get_inactive_projects(days=30):
-        """Get projects that haven't been updated in the specified number of days"""
-        query = """
-        SELECT 
-            repo_key,
-            name,
-            last_seen,
-            created_at,
-            is_marked_for_deletion,
-            is_active,
-            CURRENT_TIMESTAMP - last_seen as inactive_duration
-        FROM repositories
-        WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '%s days'
-        ORDER BY last_seen DESC;
-        """
-        result = execute_query(query, (days,))
-        return [dict(row) for row in result] if result else []
+    @classmethod
+    def get_project_status(cls, clear_cache=False):
+        """Get status of all projects including active and inactive ones with caching"""
+        cache_key = cls._get_cache_key("project_status")
+        if not clear_cache:
+            cached_result = cls._get_cached_result(cache_key)
+            if cached_result is not None:
+                return cached_result
 
-    @staticmethod
-    def get_project_status():
-        """Get status of all projects including active and inactive ones"""
         query = """
+        WITH latest_metrics AS (
+            SELECT DISTINCT ON (repository_id)
+                repository_id,
+                bugs,
+                vulnerabilities,
+                code_smells,
+                coverage,
+                duplicated_lines_density,
+                ncloc,
+                sqale_index,
+                timestamp
+            FROM metrics
+            ORDER BY repository_id, timestamp DESC
+        )
         SELECT 
-            repo_key,
-            name,
-            is_active,
-            is_marked_for_deletion,
-            last_seen,
-            created_at,
-            CURRENT_TIMESTAMP - last_seen as inactive_duration,
-            (SELECT row_to_json(m.*)
-             FROM metrics m
-             WHERE m.repository_id = r.id
-             ORDER BY m.timestamp DESC
-             LIMIT 1) as latest_metrics
+            r.repo_key,
+            r.name,
+            r.is_active,
+            r.is_marked_for_deletion,
+            r.last_seen,
+            r.created_at,
+            CURRENT_TIMESTAMP - r.last_seen as inactive_duration,
+            row_to_json(lm.*) as latest_metrics
         FROM repositories r
+        LEFT JOIN latest_metrics lm ON lm.repository_id = r.id
         ORDER BY 
-            is_active DESC,
-            last_seen DESC;
+            r.is_active DESC,
+            r.last_seen DESC;
         """
-        result = execute_query(query)
-        return [dict(row) for row in result] if result else []
-
-    @staticmethod
-    def mark_project_inactive(repo_key):
-        """Mark a project as inactive"""
-        query = """
-        UPDATE repositories
-        SET is_active = false
-        WHERE repo_key = %s;
-        """
+        
         try:
-            execute_query(query, (repo_key,))
-            return True, "Project marked as inactive"
+            result = execute_query(query)
+            data = [dict(row) for row in result] if result else []
+            cls._set_cached_result(cache_key, data)
+            return data
         except Exception as e:
-            return False, f"Error marking project as inactive: {str(e)}"
+            MetricsProcessor().logger.error(f"Error fetching project status: {str(e)}")
+            return []
 
-    @staticmethod
-    def check_and_mark_inactive_projects(active_project_keys):
-        """Check and mark projects as inactive if they are not in the active projects list"""
-        query = """
-        UPDATE repositories
-        SET is_active = false
-        WHERE repo_key NOT IN %s
-            AND is_active = true;
-        """
-        try:
-            if active_project_keys:
-                execute_query(query, (tuple(active_project_keys),))
-            return True, "Inactive projects updated"
-        except Exception as e:
-            return False, f"Error updating inactive projects: {str(e)}"
-
-    @staticmethod
-    def mark_project_for_deletion(repo_key):
-        """Mark a project for deletion"""
-        query = """
-        UPDATE repositories
-        SET is_marked_for_deletion = true
-        WHERE repo_key = %s;
-        """
-        try:
-            execute_query(query, (repo_key,))
-            return True, "Project marked for deletion"
-        except Exception as e:
-            return False, f"Error marking project for deletion: {str(e)}"
-
-    @staticmethod
-    def unmark_project_for_deletion(repo_key):
-        """Remove deletion mark from a project"""
-        query = """
-        UPDATE repositories
-        SET is_marked_for_deletion = false
-        WHERE repo_key = %s;
-        """
-        try:
-            execute_query(query, (repo_key,))
-            return True, "Deletion mark removed"
-        except Exception as e:
-            return False, f"Error removing deletion mark: {str(e)}"
-
-    @staticmethod
-    def delete_project_data(repo_key):
-        """Delete all data for a specific project that is marked for deletion"""
-        # First check if the project is marked for deletion
-        check_query = """
-        SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
-        """
-        try:
-            result = execute_query(check_query, (repo_key,))
-            if not result or not result[0][0]:
-                return False, "Project must be marked for deletion first"
-
-            # Delete metrics first due to foreign key constraint
-            delete_metrics_query = """
-            DELETE FROM metrics
-            WHERE repository_id = (SELECT id FROM repositories WHERE repo_key = %s);
-            """
-            execute_query(delete_metrics_query, (repo_key,))
-
-            # Then delete the repository
-            delete_repo_query = """
-            DELETE FROM repositories
-            WHERE repo_key = %s;
-            """
-            execute_query(delete_repo_query, (repo_key,))
-            
-            return True, "Project data deleted successfully"
-        except Exception as e:
-            return False, f"Error deleting project data: {str(e)}"
+    @classmethod
+    def clear_cache(cls):
+        """Clear all cached data"""
+        cls._cache.clear()
