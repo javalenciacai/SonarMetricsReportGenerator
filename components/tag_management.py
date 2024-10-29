@@ -92,7 +92,32 @@ def handle_tag_operation(operation_type, **kwargs):
     loading_container.info("⏳ Processing operation...")
     
     try:
-        if operation_type == "remove":
+        if operation_type == "create":
+            name = kwargs.get('name')
+            color = kwargs.get('color')
+            
+            if not name:
+                st.session_state.tag_message = {
+                    'type': 'error',
+                    'content': "❌ Tag name is required"
+                }
+                return False
+            
+            tag_id, message = create_tag(name, color)
+            if tag_id:
+                st.session_state.tag_message = {
+                    'type': 'success',
+                    'content': "✅ Tag created successfully"
+                }
+                return True
+            else:
+                st.session_state.tag_message = {
+                    'type': 'error',
+                    'content': "❌ " + message
+                }
+                return False
+                
+        elif operation_type == "remove":
             repo_key = kwargs.get('repo_key')
             tag_id = kwargs.get('tag_id')
             
@@ -118,6 +143,13 @@ def handle_tag_operation(operation_type, **kwargs):
             name = kwargs.get('name')
             color = kwargs.get('color')
             
+            if not name:
+                st.session_state.tag_message = {
+                    'type': 'error',
+                    'content': "❌ Tag name is required"
+                }
+                return False
+            
             success, message = edit_tag(tag_id, name, color)
             if success:
                 st.session_state.tag_message = {
@@ -132,8 +164,6 @@ def handle_tag_operation(operation_type, **kwargs):
                     'content': "❌ " + message
                 }
                 return False
-                
-        # [Previous operation handlers remain unchanged]
                 
     finally:
         st.session_state.tag_operation_status = None
@@ -194,8 +224,64 @@ def display_project_tags(repo_key):
             )
     
     with operation_container:
-        # [Rest of the project tags display functionality remains unchanged]
-        pass
+        col1, col2 = st.columns([3, 1])
+        
+        with col2:
+            with st.expander("➕ Add/Create Tag", expanded=True):
+                available_tags = [tag for tag in get_all_tags() 
+                                if tag['id'] not in [t['id'] for t in current_tags]]
+                
+                if available_tags:
+                    st.markdown("##### Add Existing Tag")
+                    selected_tag = st.selectbox(
+                        "Select tag",
+                        options=available_tags,
+                        format_func=lambda x: x['name'],
+                        key='tag_selector',
+                        index=None
+                    )
+                    
+                    if selected_tag:
+                        st.session_state.selected_tag_id = selected_tag['id']
+                    
+                    add_button = st.button(
+                        "Add Selected Tag",
+                        disabled=not st.session_state.selected_tag_id or st.session_state.tag_operation_status == 'processing',
+                        use_container_width=True
+                    )
+                    
+                    if add_button:
+                        if handle_tag_operation(
+                            "add",
+                            repo_key=repo_key,
+                            tag_id=st.session_state.selected_tag_id
+                        ):
+                            st.experimental_rerun()
+                else:
+                    st.info("No available tags to add")
+                
+                st.markdown("---")
+                st.markdown("##### Create New Tag")
+                
+                with st.form("create_tag_form", clear_on_submit=True):
+                    new_tag_name = st.text_input("Tag name")
+                    new_tag_color = st.color_picker("Tag color", value='#808080')
+                    
+                    submit_button = st.form_submit_button(
+                        "Create Tag",
+                        use_container_width=True,
+                        disabled=st.session_state.tag_operation_status == 'processing'
+                    )
+                    
+                    if submit_button and not st.session_state.tag_create_submitted:
+                        st.session_state.tag_create_submitted = True
+                        if handle_tag_operation(
+                            "create",
+                            name=new_tag_name,
+                            color=new_tag_color,
+                            repo_key=repo_key
+                        ):
+                            st.experimental_rerun()
 
 def display_tag_management():
     """Display global tag management interface with optimized UI updates"""
@@ -210,6 +296,7 @@ def display_tag_management():
     create_container = st.container()
     
     with main_container:
+        st.markdown("#### Existing Tags")
         tags = get_all_tags()
         if tags:
             for tag in tags:
@@ -231,10 +318,19 @@ def display_tag_management():
                 new_tag_name = st.text_input("Tag name")
                 new_tag_color = st.color_picker("Tag color", value='#808080')
                 
-                if st.form_submit_button("Create Tag", use_container_width=True):
-                    handle_tag_operation(
+                submit_button = st.form_submit_button(
+                    "Create Tag",
+                    use_container_width=True,
+                    disabled=st.session_state.tag_operation_status == 'processing'
+                )
+                
+                if submit_button and not st.session_state.tag_create_submitted:
+                    st.session_state.tag_create_submitted = True
+                    if handle_tag_operation(
                         "create",
                         name=new_tag_name,
                         color=new_tag_color
-                    )
-                    st.experimental_rerun()
+                    ):
+                        st.experimental_rerun()
+                elif not submit_button:
+                    st.session_state.tag_create_submitted = False
