@@ -1,4 +1,9 @@
 from database.connection import execute_query
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def initialize_database():
     """Initialize database with all required tables and columns"""
@@ -49,6 +54,75 @@ def initialize_database():
     """
     execute_query(create_policy_table)
 
+def add_tag_to_project(repo_key, tag_id):
+    """Add a tag to a project with improved transaction handling and locking"""
+    logger.info(f"Attempting to add tag {tag_id} to project {repo_key}")
+    
+    try:
+        # Start transaction with explicit locking
+        begin_transaction = "BEGIN;"
+        lock_query = """
+        LOCK TABLE repositories IN SHARE MODE;
+        LOCK TABLE repository_tags IN EXCLUSIVE MODE;
+        """
+        
+        # Check if tag is already assigned within the transaction
+        check_query = """
+        SELECT EXISTS (
+            SELECT 1 
+            FROM repository_tags rt
+            JOIN repositories r ON r.id = rt.repository_id
+            WHERE r.repo_key = %s AND rt.tag_id = %s
+            FOR UPDATE;
+        );
+        """
+        
+        # Insert query with improved error handling
+        insert_query = """
+        WITH repo AS (
+            SELECT id 
+            FROM repositories 
+            WHERE repo_key = %s
+            FOR UPDATE
+        )
+        INSERT INTO repository_tags (repository_id, tag_id)
+        SELECT repo.id, %s
+        FROM repo
+        WHERE NOT EXISTS (
+            SELECT 1 FROM repository_tags rt 
+            WHERE rt.repository_id = repo.id AND rt.tag_id = %s
+        )
+        RETURNING repository_id;
+        """
+        
+        # Execute all queries within a transaction
+        execute_query(begin_transaction)
+        execute_query(lock_query)
+        
+        # Check for existing tag
+        result = execute_query(check_query, (repo_key, tag_id))
+        if result[0][0]:
+            execute_query("COMMIT;")
+            logger.info(f"Tag {tag_id} already assigned to project {repo_key}")
+            return {"success": True, "status": "already_exists"}
+        
+        # Try to insert the tag
+        result = execute_query(insert_query, (repo_key, tag_id, tag_id))
+        execute_query("COMMIT;")
+        
+        if result:
+            logger.info(f"Successfully added tag {tag_id} to project {repo_key}")
+            return {"success": True, "status": "added"}
+        else:
+            logger.warning(f"No rows inserted for tag {tag_id} on project {repo_key}")
+            return {"success": False, "status": "not_found"}
+            
+    except Exception as e:
+        execute_query("ROLLBACK;")
+        error_msg = f"Error adding tag to project: {str(e)}"
+        logger.error(error_msg)
+        return {"success": False, "status": "error", "message": error_msg}
+
 def create_tag(name, color='#808080'):
     """Create a new tag with duplicate check"""
     # First check if tag exists
@@ -86,7 +160,7 @@ def get_all_tags():
         result = execute_query(query)
         return [dict(zip(['id', 'name', 'color', 'created_at'], row)) for row in result]
     except Exception as e:
-        print(f"Error getting tags: {str(e)}")
+        logger.error(f"Error getting tags: {str(e)}")
         return []
 
 def get_project_tags(repo_key):
@@ -103,44 +177,8 @@ def get_project_tags(repo_key):
         result = execute_query(query, (repo_key,))
         return [dict(zip(['id', 'name', 'color', 'created_at'], row)) for row in result]
     except Exception as e:
-        print(f"Error getting project tags: {str(e)}")
+        logger.error(f"Error getting project tags: {str(e)}")
         return []
-
-def add_tag_to_project(repo_key, tag_id):
-    """Add a tag to a project with improved duplicate handling"""
-    # First check if the tag is already assigned to the project
-    check_query = """
-    SELECT EXISTS (
-        SELECT 1 
-        FROM repository_tags rt
-        JOIN repositories r ON r.id = rt.repository_id
-        WHERE r.repo_key = %s AND rt.tag_id = %s
-    );
-    """
-    try:
-        result = execute_query(check_query, (repo_key, tag_id))
-        if result[0][0]:  # Tag is already assigned
-            return True  # Return success since the desired state is achieved
-        
-        # If tag is not assigned, add it using a transaction
-        insert_query = """
-        WITH repo AS (
-            SELECT id FROM repositories WHERE repo_key = %s
-        )
-        INSERT INTO repository_tags (repository_id, tag_id)
-        SELECT repo.id, %s
-        FROM repo
-        WHERE NOT EXISTS (
-            SELECT 1 FROM repository_tags rt 
-            WHERE rt.repository_id = repo.id AND rt.tag_id = %s
-        )
-        RETURNING repository_id;
-        """
-        result = execute_query(insert_query, (repo_key, tag_id, tag_id))
-        return bool(result)
-    except Exception as e:
-        print(f"Error adding tag to project: {str(e)}")
-        return False
 
 def remove_tag_from_project(repo_key, tag_id):
     """Remove a tag from a project"""
@@ -155,7 +193,7 @@ def remove_tag_from_project(repo_key, tag_id):
         execute_query(query, (repo_key, tag_id))
         return True
     except Exception as e:
-        print(f"Error removing tag from project: {str(e)}")
+        logger.error(f"Error removing tag from project: {str(e)}")
         return False
 
 def delete_tag(tag_id):
@@ -168,7 +206,7 @@ def delete_tag(tag_id):
         execute_query(query, (tag_id,))
         return True
     except Exception as e:
-        print(f"Error deleting tag: {str(e)}")
+        logger.error(f"Error deleting tag: {str(e)}")
         return False
 
 def check_policy_acceptance(user_token):
@@ -183,7 +221,7 @@ def check_policy_acceptance(user_token):
         result = execute_query(query, (user_token,))
         return result[0][0] if result else False
     except Exception as e:
-        print(f"Error checking policy acceptance: {str(e)}")
+        logger.error(f"Error checking policy acceptance: {str(e)}")
         return False
 
 def store_policy_acceptance(user_token):
@@ -198,5 +236,5 @@ def store_policy_acceptance(user_token):
         execute_query(query, (user_token,))
         return True
     except Exception as e:
-        print(f"Error storing policy acceptance: {str(e)}")
+        logger.error(f"Error storing policy acceptance: {str(e)}")
         return False
