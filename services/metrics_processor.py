@@ -1,6 +1,7 @@
 import pandas as pd
 from database.connection import execute_query
 from datetime import datetime, timedelta
+from database.schema import mark_project_for_deletion, unmark_project_for_deletion, delete_project_data
 
 class MetricsProcessor:
     @staticmethod
@@ -165,3 +166,18 @@ class MetricsProcessor:
             return True, "Inactive projects updated"
         except Exception as e:
             return False, f"Error updating inactive projects: {str(e)}"
+
+    @staticmethod
+    def mark_project_for_deletion(repo_key):
+        """Mark a project for deletion"""
+        return mark_project_for_deletion(repo_key)
+
+    @staticmethod
+    def unmark_project_for_deletion(repo_key):
+        """Remove deletion mark from a project"""
+        return unmark_project_for_deletion(repo_key)
+
+    @staticmethod
+    def delete_project_data(repo_key):
+        """Delete all data for a specific project"""
+        return delete_project_data(repo_key)

@@ -111,8 +111,36 @@ def display_project_management(metrics_processor, active_project_keys):
                         st.text(f"Inactive for: {project['inactive_duration'].days} days")
                         st.markdown("ℹ️ *This project is no longer found in SonarCloud*")
                         
-                        if project.get('is_marked_for_deletion'):
-                            st.info("🗑️ Marked for deletion")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if not project.get('is_marked_for_deletion'):
+                                if st.button("🗑️ Mark for Deletion", key=f"mark_{project['repo_key']}"):
+                                    success, message = metrics_processor.mark_project_for_deletion(project['repo_key'])
+                                    if success:
+                                        st.success(message)
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
+                            else:
+                                st.info("🗑️ Marked for deletion")
+                                if st.button("↩️ Unmark Deletion", key=f"unmark_{project['repo_key']}"):
+                                    success, message = metrics_processor.unmark_project_for_deletion(project['repo_key'])
+                                    if success:
+                                        st.success(message)
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
+                        
+                        with col2:
+                            if project.get('is_marked_for_deletion'):
+                                if st.button("⚠️ Delete Data", key=f"delete_{project['repo_key']}", 
+                                           help="Warning: This will permanently delete all project data!"):
+                                    success, message = metrics_processor.delete_project_data(project['repo_key'])
+                                    if success:
+                                        st.success(message)
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
                         
                         # Show historical data access button
                         if st.button(f"📊 View Historical Data", key=f"hist_{project['repo_key']}"):
