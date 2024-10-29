@@ -225,6 +225,24 @@ class MetricsProcessor:
             MetricsProcessor().logger.error(f"Error fetching project status: {str(e)}")
             return []
 
+    def check_and_mark_inactive_projects(self, active_project_keys):
+        '''Mark projects as inactive if they are not in the active_project_keys list'''
+        try:
+            query = '''
+            UPDATE repositories
+            SET is_active = FALSE
+            WHERE repo_key NOT IN %s
+            AND is_active = TRUE
+            RETURNING repo_key, name;
+            '''
+            result = execute_query(query, (tuple(active_project_keys),))
+            if result:
+                self.logger.info(f"Marked {len(result)} projects as inactive")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error marking inactive projects: {str(e)}")
+            return False
+
     @classmethod
     def clear_cache(cls):
         """Clear all cached data"""
