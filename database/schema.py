@@ -43,38 +43,6 @@ def initialize_database():
     """
     execute_query(create_update_preferences_table)
 
-    # Add columns to repositories if they don't exist
-    alter_repositories = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='last_seen') THEN
-            ALTER TABLE repositories ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='is_marked_for_deletion') THEN
-            ALTER TABLE repositories ADD COLUMN is_marked_for_deletion BOOLEAN DEFAULT false;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='is_active') THEN
-            ALTER TABLE repositories ADD COLUMN is_active BOOLEAN DEFAULT true;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='group_id') THEN
-            ALTER TABLE repositories ADD COLUMN group_id INTEGER REFERENCES project_groups(id);
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name='repositories' AND column_name='update_interval') THEN
-            ALTER TABLE repositories ADD COLUMN update_interval INTEGER DEFAULT 3600;
-        END IF;
-    END $$;
-    """
-    execute_query(alter_repositories)
-
     # Create metrics table
     create_metrics_table = """
     CREATE TABLE IF NOT EXISTS metrics (
@@ -105,6 +73,19 @@ def initialize_database():
 
 def store_update_preferences(entity_type, entity_id, interval):
     """Store update interval preferences"""
+    # Validate inputs
+    if not entity_type or not entity_id or not interval:
+        return False
+
+    if entity_type not in ('repository', 'group'):
+        return False
+
+    try:
+        entity_id = int(entity_id)
+        interval = int(interval)
+    except (TypeError, ValueError):
+        return False
+
     query = """
     INSERT INTO update_preferences (entity_type, entity_id, update_interval)
     VALUES (%s, %s, %s)
@@ -120,6 +101,15 @@ def store_update_preferences(entity_type, entity_id, interval):
 
 def get_update_preferences(entity_type, entity_id):
     """Get update interval preferences"""
+    # Validate inputs
+    if not entity_type or not entity_id:
+        return {'update_interval': 3600, 'last_update': None}
+
+    try:
+        entity_id = int(entity_id)
+    except (TypeError, ValueError):
+        return {'update_interval': 3600, 'last_update': None}
+
     query = """
     SELECT update_interval, last_update
     FROM update_preferences
@@ -134,6 +124,15 @@ def get_update_preferences(entity_type, entity_id):
 
 def update_last_update_time(entity_type, entity_id):
     """Update the last update timestamp"""
+    # Validate inputs
+    if not entity_type or not entity_id:
+        return False
+
+    try:
+        entity_id = int(entity_id)
+    except (TypeError, ValueError):
+        return False
+
     query = """
     UPDATE update_preferences 
     SET last_update = CURRENT_TIMESTAMP
