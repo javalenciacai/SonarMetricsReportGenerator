@@ -6,7 +6,7 @@ from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
-from components.policy_display import show_policies
+from components.policy_display import show_policies, get_policy_acceptance_status
 from database.schema import initialize_database
 import os
 from datetime import datetime, timedelta
@@ -14,49 +14,6 @@ from datetime import datetime, timedelta
 scheduler = SchedulerService()
 report_generator = None
 notification_service = None
-
-def setup_automated_reports(sonar_api, project_key, email_recipients):
-    global report_generator
-    if not report_generator:
-        return False
-    
-    try:
-        def generate_daily_report():
-            report_data, message = report_generator.generate_project_report(project_key, 'daily')
-            if report_data:
-                success, send_message = report_generator.send_report_email(report_data, email_recipients)
-                if not success:
-                    st.error(f"Failed to send daily report: {send_message}")
-
-        def generate_weekly_report():
-            report_data, message = report_generator.generate_project_report(project_key, 'weekly')
-            if report_data:
-                success, send_message = report_generator.send_report_email(report_data, email_recipients)
-                if not success:
-                    st.error(f"Failed to send weekly report: {send_message}")
-
-        def check_metric_changes():
-            metrics = sonar_api.get_project_metrics(project_key)
-            if metrics:
-                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                historical_data = MetricsProcessor.get_historical_data(project_key)
-                
-                if historical_data:
-                    notification_service.send_notification(
-                        project_key=project_key,
-                        metrics_data=metrics_dict,
-                        historical_data=historical_data,
-                        recipients=email_recipients
-                    )
-
-        scheduler.schedule_daily_report(generate_daily_report, hour=1, minute=0)
-        scheduler.schedule_weekly_report(generate_weekly_report, day_of_week=0, hour=2, minute=0)
-        scheduler.schedule_metric_checks(check_metric_changes, interval_hours=4)
-        
-        return True
-    except Exception as e:
-        st.error(f"Error setting up automated reports: {str(e)}")
-        return False
 
 def setup_sidebar():
     with st.sidebar:
@@ -139,53 +96,59 @@ def display_project_management(metrics_processor, active_project_keys):
                 st.success("✅ No inactive projects")
 
 def main():
-    st.set_page_config(
-        page_title="SonarCloud Metrics Dashboard",
-        page_icon="📊",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    if 'policies_accepted' not in st.session_state:
-        st.session_state.policies_accepted = False
-    if 'selected_project' not in st.session_state:
-        st.session_state.selected_project = None
-    if 'show_inactive' not in st.session_state:
-        st.session_state.show_inactive = False
-    if 'previous_project' not in st.session_state:
-        st.session_state.previous_project = None
-    if 'show_inactive_projects' not in st.session_state:
-        st.session_state.show_inactive_projects = True
-
-    with st.sidebar:
-        show_policies()
-    
-    if not st.session_state.policies_accepted:
-        st.warning("⚠️ Please read and accept the Data Usage Policies and Terms of Service to continue")
-        return
-
-    initialize_database()
-    
-    global report_generator, notification_service
-
-    if not scheduler.scheduler.running:
-        scheduler.start()
-
-    sidebar = setup_sidebar()
-    
-    token = os.getenv('SONARCLOUD_TOKEN') or st.text_input("Enter SonarCloud Token", type="password")
-    if not token:
-        st.warning("⚠️ Please enter your SonarCloud token to continue")
-        return
-
     try:
+        st.set_page_config(
+            page_title="SonarCloud Metrics Dashboard",
+            page_icon="📊",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
+
+        if 'policies_accepted' not in st.session_state:
+            st.session_state.policies_accepted = False
+        if 'selected_project' not in st.session_state:
+            st.session_state.selected_project = None
+        if 'show_inactive' not in st.session_state:
+            st.session_state.show_inactive = False
+        if 'previous_project' not in st.session_state:
+            st.session_state.previous_project = None
+        if 'show_inactive_projects' not in st.session_state:
+            st.session_state.show_inactive_projects = True
+        if 'sonar_token' not in st.session_state:
+            st.session_state.sonar_token = None
+
+        initialize_database()
+        
+        global report_generator, notification_service
+
+        if not scheduler.scheduler.running:
+            scheduler.start()
+
+        sidebar = setup_sidebar()
+        
+        token = os.getenv('SONARCLOUD_TOKEN') or st.text_input("Enter SonarCloud Token", type="password")
+        if not token:
+            st.warning("⚠️ Please enter your SonarCloud token to continue")
+            return
+
+        # Store token in session state for policy acceptance
+        st.session_state.sonar_token = token
+
+        with st.sidebar:
+            show_policies()
+        
+        # Check policy acceptance from database
+        if not get_policy_acceptance_status(token):
+            st.warning("⚠️ Please read and accept the Data Usage Policies and Terms of Service to continue")
+            return
+
         sonar_api = SonarCloudAPI(token)
         is_valid, message = sonar_api.validate_token()
         
         if not is_valid:
             st.error(message)
             return
-        
+
         report_generator = ReportGenerator(sonar_api)
         notification_service = NotificationService(report_generator)
         metrics_processor = MetricsProcessor()
@@ -195,6 +158,7 @@ def main():
         active_projects = sonar_api.get_projects()
         if not active_projects:
             st.warning("No active projects found in the organization")
+            return
         
         active_project_keys = [project['key'] for project in active_projects] if active_projects else []
         
@@ -268,6 +232,7 @@ def main():
                             else:
                                 st.error(f"❌ Failed to generate test report: {gen_message}")
 
+        # Display the appropriate view based on project selection
         if st.session_state.selected_project == 'all':
             st.markdown("## 📊 Multi-Project Overview")
             
@@ -319,7 +284,6 @@ def main():
                     st.warning("No projects found (active or inactive)")
                 else:
                     st.warning("No active projects found")
-                
         else:
             try:
                 is_inactive = st.session_state.selected_project not in active_project_keys

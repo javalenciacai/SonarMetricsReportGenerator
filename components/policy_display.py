@@ -1,6 +1,7 @@
 import streamlit as st
 import markdown
 import os
+from database.schema import check_policy_acceptance, store_policy_acceptance
 
 def load_policies():
     """Load the data policies markdown file"""
@@ -35,8 +36,28 @@ def show_policies():
         
         st.markdown(policies)
         
-        # Add acknowledgment checkbox
-        if st.checkbox("I have read and agree to the Data Usage Policies and Terms of Service"):
-            st.session_state.policies_accepted = True
+        # Get user token from session state
+        user_token = st.session_state.get('sonar_token')
+        
+        if user_token:
+            # Check if policies already accepted
+            previously_accepted = check_policy_acceptance(user_token)
+            
+            # Add acknowledgment checkbox
+            if st.checkbox("I have read and agree to the Data Usage Policies and Terms of Service", 
+                         value=previously_accepted):
+                # Store acceptance in database
+                if store_policy_acceptance(user_token):
+                    st.session_state.policies_accepted = True
+                else:
+                    st.error("Failed to store policy acceptance. Please try again.")
+                    st.session_state.policies_accepted = False
+            else:
+                st.session_state.policies_accepted = False
         else:
+            st.info("Please enter your SonarCloud token to proceed.")
             st.session_state.policies_accepted = False
+
+def get_policy_acceptance_status(user_token):
+    """Get the current policy acceptance status for a user"""
+    return check_policy_acceptance(user_token) if user_token else False
