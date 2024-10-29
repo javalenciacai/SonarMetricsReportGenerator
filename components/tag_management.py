@@ -17,11 +17,13 @@ def init_tag_state():
         st.session_state.show_tag_form = False
     if 'editing_tag' not in st.session_state:
         st.session_state.editing_tag = None
+    if 'tag_create_submitted' not in st.session_state:
+        st.session_state.tag_create_submitted = False
 
 def show_temporary_message():
     """Display temporary success/error messages using containers"""
+    message_container = st.empty()
     if st.session_state.tag_message['type']:
-        message_container = st.empty()
         if st.session_state.tag_message['type'] == 'success':
             message_container.success(st.session_state.tag_message['content'])
         elif st.session_state.tag_message['type'] == 'error':
@@ -47,6 +49,9 @@ def render_tag_badge(tag, repo_key=None, on_remove=None, enable_edit=False):
                 margin: 2px;
                 font-size: 0.8rem;">
                 {tag['name']}
+                <span style="font-size: 0.7rem; margin-left: 4px; opacity: 0.8;">
+                    {tag['updated_at'].strftime('%Y-%m-%d %H:%M') if tag.get('updated_at') else ''}
+                </span>
             </div>
         """
         st.markdown(html, unsafe_allow_html=True)
@@ -55,18 +60,25 @@ def render_tag_badge(tag, repo_key=None, on_remove=None, enable_edit=False):
         if enable_edit:
             if st.button("✏️", key=f"edit_tag_{tag['id']}", help="Edit tag"):
                 st.session_state.editing_tag = tag
+                st.session_state.show_tag_form = False
         
         if on_remove and repo_key:
             if st.button("×", key=f"remove_tag_{tag['id']}", help="Remove tag"):
-                handle_tag_operation(
-                    "remove",
-                    repo_key=repo_key,
-                    tag_id=tag['id']
-                )
+                if st.session_state.tag_operation_status != 'processing':
+                    handle_tag_operation(
+                        "remove",
+                        repo_key=repo_key,
+                        tag_id=tag['id']
+                    )
 
 def handle_tag_operation(operation_type, **kwargs):
     """Handle tag operations with improved state management and error handling"""
+    if st.session_state.tag_operation_status == 'processing':
+        return False
+
     st.session_state.tag_operation_status = 'processing'
+    loading_placeholder = st.empty()
+    loading_placeholder.info("Processing tag operation...")
     
     try:
         if operation_type == "add":
@@ -124,6 +136,7 @@ def handle_tag_operation(operation_type, **kwargs):
                             'content': f"Created and added tag: {name}"
                         }
                         st.session_state.show_tag_form = False
+                        st.session_state.tag_create_submitted = True
                         return True
                     else:
                         st.session_state.tag_message = {
@@ -136,6 +149,7 @@ def handle_tag_operation(operation_type, **kwargs):
                         'type': 'success',
                         'content': f"Created tag: {name}"
                     }
+                    st.session_state.tag_create_submitted = True
                     return True
             else:
                 st.session_state.tag_message = {
@@ -183,6 +197,7 @@ def handle_tag_operation(operation_type, **kwargs):
                 
     finally:
         st.session_state.tag_operation_status = None
+        loading_placeholder.empty()
 
 def display_project_tags(repo_key):
     """Display and manage tags for a specific project with optimized UI updates"""
@@ -191,10 +206,10 @@ def display_project_tags(repo_key):
     show_temporary_message()
     
     # Create containers for dynamic updates
-    tags_container = st.empty()
-    operation_container = st.empty()
+    tags_container = st.container()
+    operation_container = st.container()
     
-    with tags_container.container():
+    with tags_container:
         current_tags = get_project_tags(repo_key)
         if current_tags:
             st.markdown("Current tags:")
@@ -203,7 +218,7 @@ def display_project_tags(repo_key):
         else:
             st.info("No tags assigned to this project")
     
-    with operation_container.container():
+    with operation_container:
         col1, col2 = st.columns([3, 1])
         
         with col2:
@@ -212,29 +227,30 @@ def display_project_tags(repo_key):
                                 if tag['id'] not in [t['id'] for t in current_tags]]
                 
                 if available_tags:
-                    st.selectbox(
+                    selected_tag = st.selectbox(
                         "Select tag",
                         options=available_tags,
                         format_func=lambda x: x['name'],
                         key='tag_selector',
-                        index=None,
-                        on_change=lambda: setattr(
-                            st.session_state, 
-                            'selected_tag_id',
-                            st.session_state.tag_selector['id'] if st.session_state.tag_selector else None
-                        )
+                        index=None
                     )
                     
-                    st.button(
+                    if selected_tag:
+                        st.session_state.selected_tag_id = selected_tag['id']
+                    
+                    add_button = st.button(
                         "Add Selected Tag",
-                        disabled=not st.session_state.selected_tag_id,
-                        use_container_width=True,
-                        on_click=lambda: handle_tag_operation(
+                        disabled=not st.session_state.selected_tag_id or st.session_state.tag_operation_status == 'processing',
+                        use_container_width=True
+                    )
+                    
+                    if add_button:
+                        handle_tag_operation(
                             "add",
                             repo_key=repo_key,
                             tag_id=st.session_state.selected_tag_id
                         )
-                    )
+                        st.experimental_rerun()
                 else:
                     st.info("No available tags to add")
                 
@@ -247,14 +263,20 @@ def display_project_tags(repo_key):
                     
                     submit_button = st.form_submit_button(
                         "Create Tag",
-                        use_container_width=True,
-                        on_click=lambda: handle_tag_operation(
+                        use_container_width=True
+                    )
+                    
+                    if submit_button and not st.session_state.tag_create_submitted:
+                        st.session_state.tag_create_submitted = True
+                        if handle_tag_operation(
                             "create",
                             name=new_tag_name,
                             color=new_tag_color,
                             repo_key=repo_key
-                        )
-                    )
+                        ):
+                            st.experimental_rerun()
+                    elif not submit_button:
+                        st.session_state.tag_create_submitted = False
 
 def display_tag_management():
     """Display global tag management interface with optimized updates"""
@@ -262,10 +284,10 @@ def display_tag_management():
     init_tag_state()
     show_temporary_message()
     
-    tags_container = st.empty()
-    form_container = st.empty()
+    tags_container = st.container()
+    form_container = st.container()
     
-    with tags_container.container():
+    with tags_container:
         col1, col2 = st.columns([2, 1])
         
         with col1:
@@ -306,15 +328,17 @@ def display_tag_management():
                     col_submit, col_cancel = st.columns(2)
                     with col_submit:
                         if st.form_submit_button("Save Changes"):
-                            handle_tag_operation(
+                            if handle_tag_operation(
                                 "edit",
                                 tag_id=st.session_state.editing_tag['id'],
                                 name=edit_name,
                                 color=edit_color
-                            )
+                            ):
+                                st.experimental_rerun()
                     with col_cancel:
                         if st.form_submit_button("Cancel"):
                             st.session_state.editing_tag = None
+                            st.experimental_rerun()
             else:
                 st.markdown("#### Create New Tag")
                 with st.form("global_tag_form", clear_on_submit=True):
@@ -324,24 +348,13 @@ def display_tag_management():
                     if st.form_submit_button(
                         "Create Tag",
                         use_container_width=True
-                    ):
-                        handle_tag_operation(
+                    ) and not st.session_state.tag_create_submitted:
+                        st.session_state.tag_create_submitted = True
+                        if handle_tag_operation(
                             "create",
                             name=new_tag_name,
                             color=new_tag_color
-                        )
-                        st.experimental_rerun()
-
-def delete_tag_handler(tag_id):
-    """Handle tag deletion with proper state management"""
-    if delete_tag(tag_id):
-        st.session_state.tag_message = {
-            'type': 'success',
-            'content': "Tag deleted successfully"
-        }
-        st.experimental_rerun()
-    else:
-        st.session_state.tag_message = {
-            'type': 'error',
-            'content': "Failed to delete tag"
-        }
+                        ):
+                            st.experimental_rerun()
+                    else:
+                        st.session_state.tag_create_submitted = False
