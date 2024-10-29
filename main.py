@@ -137,6 +137,8 @@ def main():
         st.session_state.show_inactive = False
     if 'previous_project' not in st.session_state:
         st.session_state.previous_project = None
+    if 'show_inactive_projects' not in st.session_state:
+        st.session_state.show_inactive_projects = True
 
     # Initialize database
     initialize_database()
@@ -264,6 +266,15 @@ def main():
         if st.session_state.selected_project == 'all':
             st.markdown("## 📊 Multi-Project Overview")
             
+            # Add filter checkbox for inactive projects
+            show_inactive = st.checkbox(
+                "🔍 Show Inactive Projects",
+                value=st.session_state.show_inactive_projects,
+                help="Toggle to show/hide inactive projects in the overview",
+                key="inactive_projects_filter"
+            )
+            st.session_state.show_inactive_projects = show_inactive
+            
             # Create multi-project metrics dictionary
             all_project_metrics = {}
             
@@ -278,32 +289,39 @@ def main():
                     }
                     MetricsProcessor.store_metrics(project_key, project_names[project_key], metrics_dict)
 
-            # Add metrics for inactive projects
-            for project in all_projects_status:
-                if not project['is_active']:
-                    latest_metrics = project.get('latest_metrics')
-                    if latest_metrics:
-                        metrics_dict = {
-                            'bugs': float(latest_metrics['bugs']),
-                            'vulnerabilities': float(latest_metrics['vulnerabilities']),
-                            'code_smells': float(latest_metrics['code_smells']),
-                            'coverage': float(latest_metrics['coverage']),
-                            'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
-                            'ncloc': float(latest_metrics['ncloc']),
-                            'sqale_index': float(latest_metrics['sqale_index'])
-                        }
-                        all_project_metrics[project['repo_key']] = {
-                            'name': f"{project['name']} (Inactive)",
-                            'metrics': metrics_dict,
-                            'is_inactive': True
-                        }
+            # Add metrics for inactive projects if filter is enabled
+            if show_inactive:
+                for project in all_projects_status:
+                    if not project['is_active']:
+                        latest_metrics = project.get('latest_metrics')
+                        if latest_metrics:
+                            metrics_dict = {
+                                'bugs': float(latest_metrics['bugs']),
+                                'vulnerabilities': float(latest_metrics['vulnerabilities']),
+                                'code_smells': float(latest_metrics['code_smells']),
+                                'coverage': float(latest_metrics['coverage']),
+                                'duplicated_lines_density': float(latest_metrics['duplicated_lines_density']),
+                                'ncloc': float(latest_metrics['ncloc']),
+                                'sqale_index': float(latest_metrics['sqale_index'])
+                            }
+                            all_project_metrics[project['repo_key']] = {
+                                'name': f"{project['name']} (Inactive)",
+                                'metrics': metrics_dict,
+                                'is_inactive': True
+                            }
 
-            # Display multi-project metrics
-            display_multi_project_metrics(all_project_metrics)
-            
-            # Plot multi-project comparison
-            plot_multi_project_comparison(all_project_metrics)
-            
+            if all_project_metrics:
+                # Display multi-project metrics
+                display_multi_project_metrics(all_project_metrics)
+                
+                # Plot multi-project comparison
+                plot_multi_project_comparison(all_project_metrics)
+            else:
+                if show_inactive:
+                    st.warning("No projects found (active or inactive)")
+                else:
+                    st.warning("No active projects found")
+                
         else:
             try:
                 # Check if selected project is inactive
