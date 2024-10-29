@@ -9,6 +9,25 @@ from services.metrics_processor import MetricsProcessor
 from components.metrics_display import display_multi_project_metrics
 from components.visualizations import plot_multi_project_comparison
 
+def check_existing_group(name):
+    """Check if a group with the given name already exists"""
+    existing_groups = get_project_groups()
+    return any(group['name'].lower() == name.lower() for group in existing_groups)
+
+def validate_group_input(name, description):
+    """Validate group creation input"""
+    if not name:
+        return False, "Group name is required"
+    if len(name) < 3:
+        return False, "Group name must be at least 3 characters long"
+    if len(name) > 50:
+        return False, "Group name must be less than 50 characters"
+    if check_existing_group(name):
+        return False, "A group with this name already exists"
+    if description and len(description) > 500:
+        return False, "Description must be less than 500 characters"
+    return True, ""
+
 def manage_project_groups(sonar_api):
     """Manage project groups and display grouped metrics"""
     st.markdown("## 👥 Project Groups")
@@ -23,20 +42,46 @@ def manage_project_groups(sonar_api):
 
 def manage_groups(sonar_api):
     """Interface for creating and managing project groups"""
-    # Create New Group Form
+    # Initialize session state for form
+    if 'group_form_submitted' not in st.session_state:
+        st.session_state.group_form_submitted = False
+        st.session_state.group_name = ""
+        st.session_state.group_description = ""
+
     st.markdown("### Create New Group")
+    
+    # Create New Group Form with validation
     with st.form(key="create_group_form"):
-        group_name = st.text_input("Group Name")
-        group_description = st.text_area("Group Description", height=100)
+        group_name = st.text_input(
+            "Group Name",
+            value=st.session_state.group_name,
+            help="Enter a unique name for the group (3-50 characters)"
+        )
+        group_description = st.text_area(
+            "Group Description",
+            value=st.session_state.group_description,
+            height=100,
+            help="Optional: Describe the purpose of this group (max 500 characters)"
+        )
         create_group = st.form_submit_button("➕ Create Group")
         
-        if create_group and group_name:
-            group_id = create_project_group(group_name, group_description)
-            if group_id:
-                st.success(f"✅ Group '{group_name}' created successfully!")
-                st.experimental_rerun()
+        if create_group:
+            # Validate input
+            is_valid, error_message = validate_group_input(group_name, group_description)
+            
+            if is_valid:
+                group_id = create_project_group(group_name, group_description)
+                if group_id:
+                    st.success(f"✅ Group '{group_name}' created successfully!")
+                    # Clear form inputs
+                    st.session_state.group_name = ""
+                    st.session_state.group_description = ""
+                    st.session_state.group_form_submitted = True
+                    st.rerun()
+                else:
+                    st.error("Failed to create group. Please try again.")
             else:
-                st.error("Failed to create group")
+                st.error(error_message)
     
     st.markdown("### Assign Projects to Groups")
     
@@ -89,7 +134,7 @@ def manage_groups(sonar_api):
             
             if success:
                 st.success("✅ Project assignments updated successfully")
-                st.experimental_rerun()
+                st.rerun()
 
 def display_grouped_metrics(sonar_api):
     """Display metrics grouped by project groups"""
