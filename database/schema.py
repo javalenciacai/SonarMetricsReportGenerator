@@ -12,7 +12,8 @@ def initialize_database():
         is_marked_for_deletion BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        group_id INTEGER
+        group_id INTEGER,
+        update_interval INTEGER DEFAULT 3600
     );
     """
     execute_query(create_repositories_table)
@@ -23,10 +24,24 @@ def initialize_database():
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        update_interval INTEGER DEFAULT 3600
     );
     """
     execute_query(create_groups_table)
+
+    # Create update_preferences table
+    create_update_preferences_table = """
+    CREATE TABLE IF NOT EXISTS update_preferences (
+        id SERIAL PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        update_interval INTEGER NOT NULL DEFAULT 3600,
+        last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(entity_type, entity_id)
+    );
+    """
+    execute_query(create_update_preferences_table)
 
     # Add columns to repositories if they don't exist
     alter_repositories = """
@@ -50,6 +65,11 @@ def initialize_database():
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
                       WHERE table_name='repositories' AND column_name='group_id') THEN
             ALTER TABLE repositories ADD COLUMN group_id INTEGER REFERENCES project_groups(id);
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                      WHERE table_name='repositories' AND column_name='update_interval') THEN
+            ALTER TABLE repositories ADD COLUMN update_interval INTEGER DEFAULT 3600;
         END IF;
     END $$;
     """
@@ -82,6 +102,49 @@ def initialize_database():
     );
     """
     execute_query(create_policy_table)
+
+def store_update_preferences(entity_type, entity_id, interval):
+    """Store update interval preferences"""
+    query = """
+    INSERT INTO update_preferences (entity_type, entity_id, update_interval)
+    VALUES (%s, %s, %s)
+    ON CONFLICT (entity_type, entity_id) 
+    DO UPDATE SET update_interval = EXCLUDED.update_interval;
+    """
+    try:
+        execute_query(query, (entity_type, entity_id, interval))
+        return True
+    except Exception as e:
+        print(f"Error storing update preferences: {str(e)}")
+        return False
+
+def get_update_preferences(entity_type, entity_id):
+    """Get update interval preferences"""
+    query = """
+    SELECT update_interval, last_update
+    FROM update_preferences
+    WHERE entity_type = %s AND entity_id = %s;
+    """
+    try:
+        result = execute_query(query, (entity_type, entity_id))
+        return dict(result[0]) if result else {'update_interval': 3600, 'last_update': None}
+    except Exception as e:
+        print(f"Error getting update preferences: {str(e)}")
+        return {'update_interval': 3600, 'last_update': None}
+
+def update_last_update_time(entity_type, entity_id):
+    """Update the last update timestamp"""
+    query = """
+    UPDATE update_preferences 
+    SET last_update = CURRENT_TIMESTAMP
+    WHERE entity_type = %s AND entity_id = %s;
+    """
+    try:
+        execute_query(query, (entity_type, entity_id))
+        return True
+    except Exception as e:
+        print(f"Error updating last update time: {str(e)}")
+        return False
 
 def mark_project_for_deletion(repo_key):
     """Mark a project for deletion"""
