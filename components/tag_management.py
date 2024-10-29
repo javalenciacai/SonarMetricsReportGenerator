@@ -19,6 +19,8 @@ def init_tag_state():
         st.session_state.editing_tag = None
     if 'tag_create_submitted' not in st.session_state:
         st.session_state.tag_create_submitted = False
+    if 'tag_add_submitted' not in st.session_state:
+        st.session_state.tag_add_submitted = False
     if 'tag_removal_status' not in st.session_state:
         st.session_state.tag_removal_status = {}
 
@@ -92,7 +94,31 @@ def handle_tag_operation(operation_type, **kwargs):
     loading_container.info("⏳ Processing operation...")
     
     try:
-        if operation_type == "create":
+        if operation_type == "add":
+            repo_key = kwargs.get('repo_key')
+            tag_id = kwargs.get('tag_id')
+            
+            result = add_tag_to_project(repo_key, tag_id)
+            if result['success']:
+                if result['status'] == 'added':
+                    st.session_state.tag_message = {
+                        'type': 'success',
+                        'content': "✅ Tag added successfully"
+                    }
+                elif result['status'] == 'already_exists':
+                    st.session_state.tag_message = {
+                        'type': 'warning',
+                        'content': "⚠️ Tag already exists for this project"
+                    }
+                return True
+            else:
+                st.session_state.tag_message = {
+                    'type': 'error',
+                    'content': f"❌ {result.get('message', 'Failed to add tag')}"
+                }
+                return False
+                
+        elif operation_type == "create":
             name = kwargs.get('name')
             color = kwargs.get('color')
             
@@ -173,7 +199,7 @@ def display_edit_form(tag, on_save=None):
     """Display the edit form in a more prominent location"""
     st.markdown("### ✏️ Edit Tag")
     
-    with st.form(key=f"edit_tag_form_{tag['id']}", clear_on_submit=False):
+    with st.form(key=f"edit_tag_form_{tag['id']}", clear_on_submit=True):
         edit_name = st.text_input("Tag name", value=tag['name'])
         edit_color = st.color_picker("Tag color", value=tag['color'])
         
@@ -250,13 +276,17 @@ def display_project_tags(repo_key):
                         use_container_width=True
                     )
                     
-                    if add_button:
+                    if add_button and not st.session_state.tag_add_submitted:
+                        st.session_state.tag_add_submitted = True
                         if handle_tag_operation(
                             "add",
                             repo_key=repo_key,
                             tag_id=st.session_state.selected_tag_id
                         ):
+                            st.session_state.selected_tag_id = None
                             st.experimental_rerun()
+                    elif not add_button:
+                        st.session_state.tag_add_submitted = False
                 else:
                     st.info("No available tags to add")
                 
@@ -278,10 +308,11 @@ def display_project_tags(repo_key):
                         if handle_tag_operation(
                             "create",
                             name=new_tag_name,
-                            color=new_tag_color,
-                            repo_key=repo_key
+                            color=new_tag_color
                         ):
                             st.experimental_rerun()
+                    elif not submit_button:
+                        st.session_state.tag_create_submitted = False
 
 def display_tag_management():
     """Display global tag management interface with optimized UI updates"""
