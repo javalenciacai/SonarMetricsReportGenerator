@@ -16,28 +16,6 @@ def initialize_database():
     """
     execute_query(create_repositories_table)
 
-    # Create tags table
-    create_tags_table = """
-    CREATE TABLE IF NOT EXISTS tags (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(50) NOT NULL,
-        color VARCHAR(7) NOT NULL DEFAULT '#808080',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """
-    execute_query(create_tags_table)
-
-    # Create repository_tags table for many-to-many relationship
-    create_repository_tags_table = """
-    CREATE TABLE IF NOT EXISTS repository_tags (
-        repository_id INTEGER REFERENCES repositories(id) ON DELETE CASCADE,
-        tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (repository_id, tag_id)
-    );
-    """
-    execute_query(create_repository_tags_table)
-
     # Add columns to repositories if they don't exist
     alter_repositories = """
     DO $$
@@ -105,121 +83,28 @@ def initialize_database():
     """
     execute_query(alter_metrics)
 
-# Tag management functions
-def create_tag(name, color='#808080'):
-    """Create a new tag"""
-    query = """
-    INSERT INTO tags (name, color)
-    VALUES (%s, %s)
-    RETURNING id;
-    """
-    try:
-        result = execute_query(query, (name, color))
-        return result[0][0] if result else None
-    except Exception as e:
-        print(f"Error creating tag: {str(e)}")
-        return None
-
-def get_all_tags():
-    """Get all available tags"""
-    query = """
-    SELECT id, name, color, created_at
-    FROM tags
-    ORDER BY name;
-    """
-    try:
-        result = execute_query(query)
-        return [dict(zip(['id', 'name', 'color', 'created_at'], row)) for row in result]
-    except Exception as e:
-        print(f"Error getting tags: {str(e)}")
-        return []
-
-def get_project_tags(repo_key):
-    """Get all tags for a specific project"""
-    query = """
-    SELECT t.id, t.name, t.color, t.created_at
-    FROM tags t
-    JOIN repository_tags rt ON rt.tag_id = t.id
-    JOIN repositories r ON r.id = rt.repository_id
-    WHERE r.repo_key = %s
-    ORDER BY t.name;
-    """
-    try:
-        result = execute_query(query, (repo_key,))
-        return [dict(zip(['id', 'name', 'color', 'created_at'], row)) for row in result]
-    except Exception as e:
-        print(f"Error getting project tags: {str(e)}")
-        return []
-
-def add_tag_to_project(repo_key, tag_id):
-    """Add a tag to a project"""
-    query = """
-    INSERT INTO repository_tags (repository_id, tag_id)
-    SELECT r.id, %s
-    FROM repositories r
-    WHERE r.repo_key = %s
-    ON CONFLICT DO NOTHING
-    RETURNING repository_id;
-    """
-    try:
-        result = execute_query(query, (tag_id, repo_key))
-        return bool(result)
-    except Exception as e:
-        print(f"Error adding tag to project: {str(e)}")
-        return False
-
-def remove_tag_from_project(repo_key, tag_id):
-    """Remove a tag from a project"""
-    query = """
-    DELETE FROM repository_tags rt
-    USING repositories r
-    WHERE rt.repository_id = r.id
-    AND r.repo_key = %s
-    AND rt.tag_id = %s;
-    """
-    try:
-        execute_query(query, (repo_key, tag_id))
-        return True
-    except Exception as e:
-        print(f"Error removing tag from project: {str(e)}")
-        return False
-
-def delete_tag(tag_id):
-    """Delete a tag (will also remove it from all projects)"""
-    query = """
-    DELETE FROM tags
-    WHERE id = %s;
-    """
-    try:
-        execute_query(query, (tag_id,))
-        return True
-    except Exception as e:
-        print(f"Error deleting tag: {str(e)}")
-        return False
-
-# Existing functions...
 def mark_project_for_deletion(repo_key):
     """Mark a project for deletion"""
-    query = """
+    mark_query = """
     UPDATE repositories
     SET is_marked_for_deletion = true
     WHERE repo_key = %s;
     """
     try:
-        execute_query(query, (repo_key,))
+        execute_query(mark_query, (repo_key,))
         return True, "Project marked for deletion"
     except Exception as e:
         return False, f"Error marking project for deletion: {str(e)}"
 
 def unmark_project_for_deletion(repo_key):
     """Remove deletion mark from a project"""
-    query = """
+    unmark_query = """
     UPDATE repositories
     SET is_marked_for_deletion = false
     WHERE repo_key = %s;
     """
     try:
-        execute_query(query, (repo_key,))
+        execute_query(unmark_query, (repo_key,))
         return True, "Deletion mark removed"
     except Exception as e:
         return False, f"Error removing deletion mark: {str(e)}"

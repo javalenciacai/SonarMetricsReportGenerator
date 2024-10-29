@@ -7,7 +7,6 @@ from services.notification_service import NotificationService
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
-from components.tag_management import display_project_tags, display_tag_management
 from database.schema import initialize_database
 import os
 from datetime import datetime, timedelta
@@ -132,11 +131,13 @@ def main():
             st.warning("⚠️ Please enter your SonarCloud token to continue")
             return
 
+        # Store token in session state for policy acceptance
         st.session_state.sonar_token = token
 
         with st.sidebar:
             show_policies()
         
+        # Check policy acceptance from database
         if not get_policy_acceptance_status(token):
             st.warning("⚠️ Please read and accept the Data Usage Policies and Terms of Service to continue")
             return
@@ -231,6 +232,7 @@ def main():
                             else:
                                 st.error(f"❌ Failed to generate test report: {gen_message}")
 
+        # Display the appropriate view based on project selection
         if st.session_state.selected_project == 'all':
             st.markdown("## 📊 Multi-Project Overview")
             
@@ -277,8 +279,6 @@ def main():
             if all_project_metrics:
                 display_multi_project_metrics(all_project_metrics)
                 plot_multi_project_comparison(all_project_metrics)
-                st.markdown("---")
-                display_tag_management()
             else:
                 if show_inactive:
                     st.warning("No projects found (active or inactive)")
@@ -293,7 +293,7 @@ def main():
                     
                     latest_metrics = metrics_processor.get_latest_metrics(st.session_state.selected_project)
                     if latest_metrics:
-                        tab1, tab2, tab3 = st.tabs(["📊 Last Available Metrics", "📈 Historical Data", "🏷️ Tags"])
+                        tab1, tab2 = st.tabs(["📊 Last Available Metrics", "📈 Historical Data"])
                         
                         with tab1:
                             st.info(f"⏰ Last updated: {latest_metrics['last_seen']}")
@@ -317,9 +317,6 @@ def main():
                                 plot_metrics_history(historical_data)
                                 display_metric_trends(historical_data)
                                 create_download_report(historical_data)
-                                
-                        with tab3:
-                            display_project_tags(st.session_state.selected_project)
                     else:
                         st.info("No historical data available for this inactive project.")
                 else:
@@ -328,7 +325,7 @@ def main():
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                         MetricsProcessor.store_metrics(st.session_state.selected_project, project_names[st.session_state.selected_project], metrics_dict)
 
-                        tab1, tab2, tab3 = st.tabs(["📊 Executive Dashboard", "📈 Trend Analysis", "🏷️ Tags"])
+                        tab1, tab2 = st.tabs(["📊 Executive Dashboard", "📈 Trend Analysis"])
                         
                         with tab1:
                             display_current_metrics(metrics_dict)
@@ -343,10 +340,6 @@ def main():
                                 create_download_report(historical_data)
                             else:
                                 st.warning("⚠️ No historical data available for trend analysis")
-                                
-                        with tab3:
-                            display_project_tags(st.session_state.selected_project)
-
             except Exception as e:
                 st.error(f"Error displaying project data: {str(e)}")
                 reset_project_state()
