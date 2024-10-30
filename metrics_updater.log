@@ -1,0 +1,92 @@
+2024-10-30 14:47:58,153 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:47:58,957 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:47:59,102 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:47:59,170 - services.metrics_updater - WARNING - [20241030_144758_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:47:59,170 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:47:59
+2024-10-30 14:47:59,170 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:47:59,170 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:47:59,929 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:47:59,930 - services.metrics_updater - WARNING - [20241030_144758_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:47:59,930 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:47:59
+2024-10-30 14:47:59,930 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:47:59,931 - services.metrics_updater - INFO - [20241030_144758_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:47:59,957 - services.metrics_updater - INFO - [20241030_144759_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:00,152 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:00,898 - services.metrics_updater - INFO - [20241030_144759_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:00,899 - services.metrics_updater - WARNING - [20241030_144759_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:00,899 - services.metrics_updater - INFO - [20241030_144759_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:00
+2024-10-30 14:48:00,900 - services.metrics_updater - INFO - [20241030_144759_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:00,900 - services.metrics_updater - INFO - [20241030_144759_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:00,957 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:01,102 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:01,102 - services.metrics_updater - WARNING - [20241030_144800_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:01,103 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:01
+2024-10-30 14:48:01,103 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:01,103 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:01,152 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:01,901 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:01,903 - services.metrics_updater - WARNING - [20241030_144800_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:01,904 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:01
+2024-10-30 14:48:01,904 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:01,905 - services.metrics_updater - INFO - [20241030_144800_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:01,957 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:02,108 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:02,109 - services.metrics_updater - WARNING - [20241030_144801_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:02,109 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:02
+2024-10-30 14:48:02,110 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:02,110 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:02,152 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:02,902 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:02,903 - services.metrics_updater - WARNING - [20241030_144801_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:02,903 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:02
+2024-10-30 14:48:02,903 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:02,904 - services.metrics_updater - INFO - [20241030_144801_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:02,957 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:03,137 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:03,138 - services.metrics_updater - WARNING - [20241030_144802_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:03,138 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:03
+2024-10-30 14:48:03,138 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:03,139 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:03,152 - services.metrics_updater - INFO - [20241030_144803_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:03,959 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:03,960 - services.metrics_updater - WARNING - [20241030_144802_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:03,960 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:03
+2024-10-30 14:48:03,960 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:03,961 - services.metrics_updater - INFO - [20241030_144802_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:04,097 - services.metrics_updater - INFO - [20241030_144803_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:04,100 - services.metrics_updater - WARNING - [20241030_144803_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:04,101 - services.metrics_updater - INFO - [20241030_144803_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:04
+2024-10-30 14:48:04,101 - services.metrics_updater - INFO - [20241030_144803_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:04,102 - services.metrics_updater - INFO - [20241030_144803_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:04,152 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:04,957 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:05,095 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:05,095 - services.metrics_updater - WARNING - [20241030_144804_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:05,096 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:05
+2024-10-30 14:48:05,096 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:05,097 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:05,152 - services.metrics_updater - INFO - [20241030_144805_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:05,959 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:05,960 - services.metrics_updater - WARNING - [20241030_144804_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:05,960 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:05
+2024-10-30 14:48:05,960 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:05,961 - services.metrics_updater - INFO - [20241030_144804_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:06,115 - services.metrics_updater - INFO - [20241030_144805_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:06,116 - services.metrics_updater - WARNING - [20241030_144805_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:06,116 - services.metrics_updater - INFO - [20241030_144805_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:06
+2024-10-30 14:48:06,116 - services.metrics_updater - INFO - [20241030_144805_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:06,116 - services.metrics_updater - INFO - [20241030_144805_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:06,153 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:06,957 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:07,128 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:07,129 - services.metrics_updater - WARNING - [20241030_144806_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:07,130 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:07
+2024-10-30 14:48:07,130 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:07,130 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:07,152 - services.metrics_updater - INFO - [20241030_144807_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:48:07,912 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:48:07,914 - services.metrics_updater - WARNING - [20241030_144806_repository_navisafit_AlertManagement] No metrics data received from SonarCloud API
+2024-10-30 14:48:07,914 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Execution completed at 2024-10-30 14:48:07
+2024-10-30 14:48:07,914 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Final status: running
+2024-10-30 14:48:07,915 - services.metrics_updater - INFO - [20241030_144806_repository_navisafit_AlertManagement] Errors encountered: 1
+2024-10-30 14:48:07,957 - services.metrics_updater - INFO - [20241030_144807_repository_navisafit_AlertManagement] Starting metrics update execution
