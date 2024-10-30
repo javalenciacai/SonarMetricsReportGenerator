@@ -9,10 +9,12 @@
   - [Executive Dashboard](#executive-dashboard)
   - [Trend Analysis](#trend-analysis)
   - [Multi-Project View](#multi-project-view)
+  - [Project Groups](#project-groups)
 - [Features Guide](#features-guide)
   - [Automated Reports](#automated-reports)
   - [Email Notifications](#email-notifications)
   - [Project Management](#project-management)
+  - [Update Intervals](#update-intervals)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 
@@ -44,6 +46,7 @@ The sidebar contains the project selection dropdown with three main options:
 - 📊 **All Projects**: Overview of all projects
 - ✅ **Active Projects**: Currently analyzed projects
 - ⚠️ **Inactive Projects**: Projects no longer found in SonarCloud
+- 👥 **Project Groups**: View and manage project groups
 
 ### Executive Dashboard
 The main dashboard displays:
@@ -72,16 +75,30 @@ The main dashboard displays:
 ### Trend Analysis
 Access detailed trends through the "Trend Analysis" tab:
 
-1. **Historical Charts**
-   - Lines of Code trend
-   - Technical Debt progression
-   - Issues tracking
-   - Quality metrics evolution
+#### Understanding Trend Analysis
+1. **Moving Averages**
+   - 7-day moving average (solid line)
+   - 30-day moving average (dotted line)
+   - Helps smooth out daily fluctuations
 
-2. **Comparative Analysis**
-   - Week-over-week changes
-   - Month-over-month trends
-   - Moving averages (7-day, 30-day)
+2. **Trend Indicators**
+   - 📈 Increasing trend
+   - 📉 Decreasing trend
+   - ➡️ Stable trend
+
+3. **Period Comparisons**
+   - Current vs Previous 7-day averages
+   - Percentage changes with color coding:
+     - 🟢 Green: Positive change
+     - 🔴 Red: Negative change
+     - ⚪ Gray: No significant change
+
+4. **Metric Interpretation**
+   - Lines of Code: Growth indicator
+   - Technical Debt: Lower is better
+   - Issues (Bugs, Vulnerabilities): Reduction is positive
+   - Coverage: Higher is better
+   - Duplication: Lower is better
 
 ### Multi-Project View
 The "All Projects" view provides:
@@ -93,6 +110,24 @@ The "All Projects" view provides:
    - Quality Score sorting
    - Metric comparisons
    - Status indicators
+
+### Project Groups
+Manage and analyze multiple projects together:
+
+1. **Group Creation**
+   - Create named groups
+   - Add project descriptions
+   - Set group-wide update intervals
+
+2. **Group Management**
+   - Add/remove projects
+   - View grouped metrics
+   - Compare projects within groups
+
+3. **Group Metrics**
+   - Aggregated group statistics
+   - Comparative visualizations
+   - Trend analysis by group
 
 ## Features Guide
 
@@ -152,6 +187,32 @@ The "All Projects" view provides:
    - Remove deletion mark
    - Permanent deletion
 
+### Update Intervals
+
+#### Setting Update Frequency
+1. Navigate to Update Interval Settings
+2. Choose from available intervals:
+   - 5 minutes
+   - 15 minutes
+   - 30 minutes
+   - 1 hour (default)
+   - 2 hours
+   - 4 hours
+   - 8 hours
+   - 12 hours
+   - 24 hours
+
+#### Interval Management
+1. **Individual Projects**
+   - Set per-project update frequency
+   - View last update timestamp
+   - Modify as needed
+
+2. **Project Groups**
+   - Set group-wide update intervals
+   - Override individual project settings
+   - Optimize resource usage
+
 ## Troubleshooting
 
 ### Common Issues
@@ -186,7 +247,7 @@ The "All Projects" view provides:
 ## FAQ
 
 **Q: How often are metrics updated?**
-A: Metrics are fetched in real-time when viewing a project. Historical data is preserved for trend analysis.
+A: Metrics are updated based on your configured interval (5 minutes to 24 hours). Default is 1 hour.
 
 **Q: Can I track deleted projects?**
 A: Yes, inactive projects remain visible with their historical data until manually deleted.
@@ -211,3 +272,17 @@ A: The system uses predefined thresholds:
 - Code Smells: 25% increase
 - Coverage: 10% decrease
 - Duplication: 30% increase
+
+**Q: How do I manage inactive projects?**
+A: Inactive projects can be:
+1. Marked for deletion
+2. Kept for historical reference
+3. Permanently deleted when needed
+4. Unmarked if they become active again
+
+**Q: What's the benefit of project groups?**
+A: Project groups allow you to:
+1. Organize related projects
+2. View aggregated metrics
+3. Set common update intervals
+4. Compare projects easily
