@@ -149,6 +149,12 @@ class SonarCloudAPI:
             response = requests.get(url, headers=self.headers, params=params)
             self._log_request("GET", url, params, response)
             
+            if response.status_code == 404:
+                # Project not found or no longer exists
+                error_msg = f"Project '{project_key}' not found or no longer exists in SonarCloud"
+                self.logger.error(error_msg)
+                raise requests.exceptions.HTTPError(error_msg, response=response)
+            
             response.raise_for_status()
             component_data = response.json().get('component', {})
             
@@ -159,6 +165,16 @@ class SonarCloudAPI:
                 
             return component_data.get('measures', [])
             
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                # Let the caller handle the 404 case
+                raise
+            error_message = "Failed to fetch metrics"
+            self.logger.error(f"{error_message}: {str(e)}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                self.logger.error(f"API Response: {e.response.text}")
+            st.error(error_message)
+            return []
         except requests.exceptions.RequestException as e:
             error_message = "Failed to fetch metrics"
             self.logger.error(f"{error_message}: {str(e)}")
