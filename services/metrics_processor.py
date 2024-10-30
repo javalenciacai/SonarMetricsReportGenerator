@@ -2,12 +2,18 @@ import pandas as pd
 from database.connection import execute_query
 from datetime import datetime, timedelta
 from database.schema import mark_project_for_deletion, unmark_project_for_deletion, delete_project_data
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class MetricsProcessor:
     @staticmethod
     def store_metrics(repo_key, name, metrics, reset_failures=False):
         """Store metrics and track project existence"""
         try:
+            logger.debug(f"Storing metrics for repository {repo_key}")
             # Store repository and update last_seen timestamp
             repo_query = """
             INSERT INTO repositories (
@@ -26,8 +32,10 @@ class MetricsProcessor:
             """
             result = execute_query(repo_query, (repo_key, name, 0, reset_failures))
             if not result:
+                logger.error(f"Failed to get repository ID for {repo_key}")
                 raise Exception("Failed to get repository ID")
             repo_id = result[0][0]
+            logger.debug(f"Repository {repo_key} stored/updated with ID {repo_id}")
 
             # Store metrics with all required columns
             metrics_query = """
@@ -48,9 +56,10 @@ class MetricsProcessor:
                 float(metrics.get('sqale_index', 0))
             )
             execute_query(metrics_query, metrics_data)
+            logger.debug(f"Metrics stored successfully for repository {repo_key}")
             return True
         except Exception as e:
-            print(f"Error storing metrics: {str(e)}")
+            logger.error(f"Error storing metrics for {repo_key}: {str(e)}")
             return False
 
     @staticmethod
@@ -67,16 +76,19 @@ class MetricsProcessor:
         RETURNING consecutive_failures, is_active;
         """
         try:
+            logger.debug(f"Incrementing consecutive failures for repository {repo_key}")
             result = execute_query(query, (repo_key,))
             if result and result[0]:
                 failures, is_active = result[0]
+                logger.info(f"Repository {repo_key} consecutive failures increased to {failures}")
+                logger.info(f"Repository {repo_key} active status: {is_active}")
                 if not is_active:
                     # If project became inactive, check for auto-deletion criteria
                     MetricsProcessor.check_auto_deletion_criteria(repo_key)
                 return failures
             return None
         except Exception as e:
-            print(f"Error incrementing consecutive failures: {str(e)}")
+            logger.error(f"Error incrementing consecutive failures for {repo_key}: {str(e)}")
             return None
 
     @staticmethod
@@ -89,18 +101,23 @@ class MetricsProcessor:
           AND is_active = false
           AND NOT is_marked_for_deletion
           AND (CURRENT_TIMESTAMP - last_seen) > INTERVAL '30 days'
-          AND consecutive_failures >= 5;
+          AND consecutive_failures >= 5
+        RETURNING id;
         """
         try:
-            execute_query(query, (repo_key,))
-            return True
+            logger.debug(f"Checking auto-deletion criteria for repository {repo_key}")
+            result = execute_query(query, (repo_key,))
+            if result:
+                logger.info(f"Repository {repo_key} marked for auto-deletion")
+            return bool(result)
         except Exception as e:
-            print(f"Error checking auto-deletion criteria: {str(e)}")
+            logger.error(f"Error checking auto-deletion criteria for {repo_key}: {str(e)}")
             return False
 
     @staticmethod
     def mark_project_inactive(repo_key):
-        """Mark a project as inactive"""
+        """Mark a project as inactive while preserving historical data"""
+        logger.info(f"Marking project {repo_key} as inactive")
         query = """
         UPDATE repositories
         SET is_active = false,
@@ -110,17 +127,35 @@ class MetricsProcessor:
                 ELSE consecutive_failures 
             END
         WHERE repo_key = %s
-        RETURNING id;
+        RETURNING id, consecutive_failures;
         """
         try:
             result = execute_query(query, (repo_key,))
             if result:
+                repo_id, failures = result[0]
+                logger.info(f"Project {repo_key} marked as inactive with {failures} consecutive failures")
+                logger.debug(f"Project {repo_key} (ID: {repo_id}) status updated in database")
+                
+                # Verify the update was successful
+                verify_query = """
+                SELECT is_active, consecutive_failures, last_seen
+                FROM repositories
+                WHERE repo_key = %s;
+                """
+                verify_result = execute_query(verify_query, (repo_key,))
+                if verify_result:
+                    is_active, failures, last_seen = verify_result[0]
+                    logger.debug(f"Project {repo_key} status verification - "
+                               f"Active: {is_active}, Failures: {failures}, "
+                               f"Last seen: {last_seen}")
+                
                 # Check for auto-deletion criteria after marking inactive
                 MetricsProcessor.check_auto_deletion_criteria(repo_key)
                 return True
+            logger.error(f"Failed to mark project {repo_key} as inactive - no rows updated")
             return False
         except Exception as e:
-            print(f"Error marking project inactive: {str(e)}")
+            logger.error(f"Error marking project {repo_key} as inactive: {str(e)}")
             return False
 
     @staticmethod
@@ -141,8 +176,17 @@ class MetricsProcessor:
         WHERE r.repo_key = %s
         ORDER BY m.timestamp DESC;
         """
-        result = execute_query(query, (repo_key,))
-        return [dict(row) for row in result] if result else []
+        try:
+            logger.debug(f"Retrieving historical data for repository {repo_key}")
+            result = execute_query(query, (repo_key,))
+            if result:
+                logger.debug(f"Retrieved {len(result)} historical records for {repo_key}")
+                return [dict(row) for row in result]
+            logger.debug(f"No historical data found for repository {repo_key}")
+            return []
+        except Exception as e:
+            logger.error(f"Error retrieving historical data for {repo_key}: {str(e)}")
+            return []
 
     @staticmethod
     def get_latest_metrics(repo_key):
@@ -168,13 +212,23 @@ class MetricsProcessor:
         ORDER BY m.timestamp DESC
         LIMIT 1;
         """
-        result = execute_query(query, (repo_key,))
-        return dict(result[0]) if result else None
+        try:
+            logger.debug(f"Retrieving latest metrics for repository {repo_key}")
+            result = execute_query(query, (repo_key,))
+            if result:
+                logger.debug(f"Retrieved latest metrics for repository {repo_key}")
+                return dict(result[0])
+            logger.debug(f"No metrics found for repository {repo_key}")
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving latest metrics for {repo_key}: {str(e)}")
+            return None
 
     @staticmethod
     def check_and_mark_inactive_projects(active_project_keys):
         """Check and mark projects as inactive if they are not in the active projects list"""
         if not active_project_keys:
+            logger.info("No active projects to compare")
             return True, "No active projects to compare"
         
         query = """
@@ -193,6 +247,7 @@ class MetricsProcessor:
         FROM updated;
         """
         try:
+            logger.debug("Checking and marking inactive projects")
             result = execute_query(query, (tuple(active_project_keys),))
             marked_inactive = result[0][0] if result and result[0][0] else []
             
@@ -200,8 +255,10 @@ class MetricsProcessor:
             for repo_key in marked_inactive:
                 MetricsProcessor.check_auto_deletion_criteria(repo_key)
             
+            logger.info(f"Marked {len(marked_inactive)} projects as inactive")
             return True, f"Marked {len(marked_inactive)} projects as inactive"
         except Exception as e:
+            logger.error(f"Error updating inactive projects: {str(e)}")
             return False, f"Error updating inactive projects: {str(e)}"
 
     @staticmethod
@@ -229,20 +286,32 @@ class MetricsProcessor:
             is_marked_for_deletion,
             last_seen DESC;
         """
-        result = execute_query(query)
-        return [dict(row) for row in result] if result else []
+        try:
+            logger.debug("Retrieving project status for all projects")
+            result = execute_query(query)
+            if result:
+                logger.debug(f"Retrieved status for {len(result)} projects")
+                return [dict(row) for row in result]
+            logger.debug("No projects found")
+            return []
+        except Exception as e:
+            logger.error(f"Error retrieving project status: {str(e)}")
+            return []
 
     @staticmethod
     def mark_project_for_deletion(repo_key):
         """Mark a project for deletion"""
+        logger.info(f"Marking project {repo_key} for deletion")
         return mark_project_for_deletion(repo_key)
 
     @staticmethod
     def unmark_project_for_deletion(repo_key):
         """Remove deletion mark from a project"""
+        logger.info(f"Removing deletion mark from project {repo_key}")
         return unmark_project_for_deletion(repo_key)
 
     @staticmethod
     def delete_project_data(repo_key):
         """Delete all data for a specific project"""
+        logger.info(f"Deleting all data for project {repo_key}")
         return delete_project_data(repo_key)
