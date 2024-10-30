@@ -307,3 +307,32 @@ def remove_project_from_group(repo_key):
     except Exception as e:
         print(f"Error removing project from group: {str(e)}")
         return False
+
+def delete_project_group(group_id):
+    """Delete a project group and remove group assignments from projects"""
+    try:
+        # First remove group assignments from all projects
+        remove_assignments_query = """
+        UPDATE repositories
+        SET group_id = NULL
+        WHERE group_id = %s;
+        """
+        execute_query(remove_assignments_query, (group_id,))
+        
+        # Remove update preferences
+        delete_prefs_query = """
+        DELETE FROM update_preferences
+        WHERE entity_type = 'group' AND entity_id = %s;
+        """
+        execute_query(delete_prefs_query, (group_id,))
+        
+        # Finally delete the group
+        delete_group_query = """
+        DELETE FROM project_groups
+        WHERE id = %s;
+        """
+        execute_query(delete_group_query, (group_id,))
+        
+        return True, "Group deleted successfully"
+    except Exception as e:
+        return False, f"Error deleting group: {str(e)}"
