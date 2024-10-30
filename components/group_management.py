@@ -43,12 +43,13 @@ def manage_project_groups(sonar_api):
 
 def manage_groups(sonar_api):
     """Interface for creating and managing project groups"""
-    # Initialize session state for form
+    # Initialize session state for form and confirmations
     if 'group_form_submitted' not in st.session_state:
         st.session_state.group_form_submitted = False
         st.session_state.group_name = ""
         st.session_state.group_description = ""
         st.session_state.show_delete_confirm = {}
+        st.session_state.show_remove_confirm = {}
 
     st.markdown("### Create New Group")
     
@@ -85,7 +86,7 @@ def manage_groups(sonar_api):
             else:
                 st.error(error_message)
     
-    # Display existing groups with delete option
+    # Display existing groups with management options
     st.markdown("### Existing Groups")
     groups = get_project_groups()
     
@@ -94,6 +95,7 @@ def manage_groups(sonar_api):
         return
     
     metrics_processor = MetricsProcessor()
+    projects = sonar_api.get_projects()
     
     for group in groups:
         with st.expander(f"📁 {group['name']}", expanded=True):
@@ -103,10 +105,68 @@ def manage_groups(sonar_api):
                 if group['description']:
                     st.markdown(f"*{group['description']}*")
                 
-                # Get and display project count
-                projects = metrics_processor.get_projects_in_group(group['id'])
-                project_count = len(projects) if projects else 0
+                # Get and display project count and list
+                group_projects = metrics_processor.get_projects_in_group(group['id'])
+                project_count = len(group_projects) if group_projects else 0
                 st.markdown(f"**Projects in group:** {project_count}")
+                
+                # Project assignment interface
+                if projects:
+                    st.markdown("#### Manage Projects")
+                    
+                    # Create sets of project keys for easier comparison
+                    group_project_keys = {p['repo_key'] for p in group_projects} if group_projects else set()
+                    available_projects = [p for p in projects if p['key'] not in group_project_keys]
+                    
+                    # Add projects to group
+                    if available_projects:
+                        selected_projects = st.multiselect(
+                            "Add Projects to Group",
+                            options=[p['key'] for p in available_projects],
+                            format_func=lambda x: next(p['name'] for p in available_projects if p['key'] == x),
+                            key=f"add_projects_{group['id']}"
+                        )
+                        
+                        if selected_projects:
+                            col3, col4 = st.columns([3, 1])
+                            with col4:
+                                if st.button("➕ Add Selected", key=f"add_btn_{group['id']}"):
+                                    success_count = 0
+                                    for project_key in selected_projects:
+                                        if assign_project_to_group(project_key, group['id']):
+                                            success_count += 1
+                                    if success_count > 0:
+                                        st.success(f"Added {success_count} projects to the group")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to add projects")
+                    
+                    # List and manage current projects
+                    if group_projects:
+                        st.markdown("#### Current Projects")
+                        for project in group_projects:
+                            col5, col6 = st.columns([3, 1])
+                            with col5:
+                                st.markdown(f"• {project['name']}")
+                            with col6:
+                                # Initialize remove confirmation state
+                                if f"remove_{project['repo_key']}" not in st.session_state.show_remove_confirm:
+                                    st.session_state.show_remove_confirm[f"remove_{project['repo_key']}"] = False
+                                
+                                if not st.session_state.show_remove_confirm[f"remove_{project['repo_key']}"]:
+                                    if st.button("🗑️", key=f"remove_btn_{project['repo_key']}"):
+                                        st.session_state.show_remove_confirm[f"remove_{project['repo_key']}"] = True
+                                else:
+                                    if st.button("✅ Confirm Remove", key=f"confirm_remove_{project['repo_key']}"):
+                                        if remove_project_from_group(project['repo_key']):
+                                            st.success(f"Removed {project['name']} from group")
+                                            st.session_state.show_remove_confirm[f"remove_{project['repo_key']}"] = False
+                                            st.rerun()
+                                        else:
+                                            st.error("Failed to remove project")
+                                    if st.button("❌ Cancel", key=f"cancel_remove_{project['repo_key']}"):
+                                        st.session_state.show_remove_confirm[f"remove_{project['repo_key']}"] = False
+                                        st.rerun()
             
             with col2:
                 # Initialize confirmation state for this group if not exists
@@ -118,8 +178,8 @@ def manage_groups(sonar_api):
                         st.session_state.show_delete_confirm[str(group['id'])] = True
                 else:
                     st.warning("Are you sure you want to delete this group?")
-                    col3, col4 = st.columns(2)
-                    with col3:
+                    col7, col8 = st.columns(2)
+                    with col7:
                         if st.button("✅ Yes", key=f"confirm_{group['id']}"):
                             success, message = delete_project_group(group['id'])
                             if success:
@@ -128,7 +188,7 @@ def manage_groups(sonar_api):
                                 st.rerun()
                             else:
                                 st.error(f"Failed to delete group: {message}")
-                    with col4:
+                    with col8:
                         if st.button("❌ No", key=f"cancel_{group['id']}"):
                             st.session_state.show_delete_confirm[str(group['id'])] = False
                             st.rerun()
