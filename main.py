@@ -6,7 +6,7 @@ from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from services.metrics_updater import update_entity_metrics
-from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
+from components.metrics_display import create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
 from components.group_management import manage_project_groups
@@ -335,7 +335,6 @@ def main():
                 except requests.exceptions.HTTPError as e:
                     if e.response.status_code == 404:
                         if not is_inactive:
-                            # Only mark as inactive if not already inactive
                             metrics_processor.mark_project_inactive(selected_project)
                             st.warning("⚠️ Project not found in SonarCloud. Marked as inactive.")
                             st.rerun()
@@ -346,7 +345,7 @@ def main():
                         if project_data:
                             metrics_dict = {k: float(v) for k, v in project_data.items() 
                                          if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
-                            display_current_metrics(metrics_dict)
+                            display_multi_project_metrics({selected_project: {'name': project_names[selected_project].split(' ', 1)[1], 'metrics': metrics_dict}})
                             
                             historical_data = metrics_processor.get_historical_data(selected_project)
                             if historical_data:
@@ -358,29 +357,17 @@ def main():
                 
                 if metrics:
                     metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                    metrics_processor.store_metrics(selected_project, 
-                                                 project_names[selected_project].split(" ")[1], 
-                                                 metrics_dict)
-                    display_current_metrics(metrics_dict)
-                    
+                    display_multi_project_metrics({selected_project: {'name': project_names[selected_project].split(' ', 1)[1], 'metrics': metrics_dict}})
                     historical_data = metrics_processor.get_historical_data(selected_project)
                     if historical_data:
                         plot_metrics_history(historical_data)
                         display_metric_trends(historical_data)
                         create_download_report(historical_data)
 
-                if selected_project != 'all' and not is_inactive:
-                    st.sidebar.markdown("---")
-                    with st.sidebar:
-                        display_interval_settings(
-                            'repository',
-                            selected_project,
-                            scheduler
-                        )
-
     except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
         logger.error(f"Application error: {str(e)}")
-        st.error(f"Application error: {str(e)}")
+        return
 
 if __name__ == "__main__":
     main()
