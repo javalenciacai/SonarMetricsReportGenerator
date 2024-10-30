@@ -1,8 +1,7 @@
 import streamlit as st
 from database.schema import store_update_preferences, get_update_preferences
-import sys
 import logging
-from importlib import import_module
+from services.metrics_updater import update_entity_metrics
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -63,11 +62,10 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
                 
                 # Store preferences using the entity_id directly
                 if store_update_preferences(entity_type, entity_id, interval_seconds):
-                    # Import the metrics updater function dynamically
+                    # Schedule metrics update with proper error handling
                     try:
-                        metrics_updater = import_module('services.metrics_updater')
                         scheduler_service.schedule_metrics_update(
-                            metrics_updater.update_entity_metrics,
+                            update_entity_metrics,
                             entity_type,
                             entity_id,
                             interval_seconds
