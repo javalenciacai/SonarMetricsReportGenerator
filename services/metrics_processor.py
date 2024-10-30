@@ -58,16 +58,45 @@ class MetricsProcessor:
         """Increment the consecutive failures counter for a repository"""
         query = """
         UPDATE repositories 
-        SET consecutive_failures = consecutive_failures + 1
+        SET consecutive_failures = consecutive_failures + 1,
+            is_active = CASE 
+                WHEN consecutive_failures >= 2 THEN false 
+                ELSE is_active 
+            END
         WHERE repo_key = %s
-        RETURNING consecutive_failures;
+        RETURNING consecutive_failures, is_active;
         """
         try:
             result = execute_query(query, (repo_key,))
-            return result[0][0] if result else None
+            if result and result[0]:
+                failures, is_active = result[0]
+                if not is_active:
+                    # If project became inactive, check for auto-deletion criteria
+                    MetricsProcessor.check_auto_deletion_criteria(repo_key)
+                return failures
+            return None
         except Exception as e:
             print(f"Error incrementing consecutive failures: {str(e)}")
             return None
+
+    @staticmethod
+    def check_auto_deletion_criteria(repo_key):
+        """Check if project meets criteria for automatic deletion marking"""
+        query = """
+        UPDATE repositories
+        SET is_marked_for_deletion = true
+        WHERE repo_key = %s
+          AND is_active = false
+          AND NOT is_marked_for_deletion
+          AND (CURRENT_TIMESTAMP - last_seen) > INTERVAL '30 days'
+          AND consecutive_failures >= 5;
+        """
+        try:
+            execute_query(query, (repo_key,))
+            return True
+        except Exception as e:
+            print(f"Error checking auto-deletion criteria: {str(e)}")
+            return False
 
     @staticmethod
     def mark_project_inactive(repo_key):
@@ -75,12 +104,21 @@ class MetricsProcessor:
         query = """
         UPDATE repositories
         SET is_active = false,
-            last_seen = CURRENT_TIMESTAMP
-        WHERE repo_key = %s;
+            last_seen = CURRENT_TIMESTAMP,
+            consecutive_failures = CASE 
+                WHEN consecutive_failures < 3 THEN 3 
+                ELSE consecutive_failures 
+            END
+        WHERE repo_key = %s
+        RETURNING id;
         """
         try:
-            execute_query(query, (repo_key,))
-            return True
+            result = execute_query(query, (repo_key,))
+            if result:
+                # Check for auto-deletion criteria after marking inactive
+                MetricsProcessor.check_auto_deletion_criteria(repo_key)
+                return True
+            return False
         except Exception as e:
             print(f"Error marking project inactive: {str(e)}")
             return False
@@ -142,7 +180,11 @@ class MetricsProcessor:
         query = """
         WITH updated AS (
             UPDATE repositories
-            SET is_active = false
+            SET is_active = false,
+                consecutive_failures = CASE 
+                    WHEN consecutive_failures < 3 THEN 3 
+                    ELSE consecutive_failures 
+                END
             WHERE repo_key NOT IN %s
                 AND is_active = true
             RETURNING repo_key
@@ -153,6 +195,11 @@ class MetricsProcessor:
         try:
             result = execute_query(query, (tuple(active_project_keys),))
             marked_inactive = result[0][0] if result and result[0][0] else []
+            
+            # Check auto-deletion criteria for newly inactive projects
+            for repo_key in marked_inactive:
+                MetricsProcessor.check_auto_deletion_criteria(repo_key)
+            
             return True, f"Marked {len(marked_inactive)} projects as inactive"
         except Exception as e:
             return False, f"Error updating inactive projects: {str(e)}"
@@ -179,6 +226,7 @@ class MetricsProcessor:
         FROM repositories r
         ORDER BY 
             is_active DESC,
+            is_marked_for_deletion,
             last_seen DESC;
         """
         result = execute_query(query)

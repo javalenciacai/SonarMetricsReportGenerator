@@ -1142,3 +1142,9 @@
 2024-10-30 14:56:33,016 - services.metrics_updater - INFO - [20241030_145633_repository_navisafit_AlertManagement] Starting metrics update execution
 2024-10-30 14:56:33,716 - services.metrics_updater - INFO - [20241030_145633_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
 2024-10-30 14:56:34,753 - services.metrics_updater - INFO - [20241030_145633_repository_navisafit_AlertManagement] Successfully updated repository metrics
+2024-10-30 15:47:23,434 - services.metrics_updater - INFO - [20241030_154723_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 15:47:23,434 - services.metrics_updater - INFO - [20241030_154723_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 15:47:24,193 - services.metrics_updater - INFO - [20241030_154723_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 15:47:24,193 - services.metrics_updater - INFO - [20241030_154723_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 15:47:25,720 - services.metrics_updater - INFO - [20241030_154723_repository_navisafit_GoApp_Web_API] Successfully updated repository metrics
+2024-10-30 15:47:25,720 - services.metrics_updater - INFO - [20241030_154723_repository_navisafit_GoApp_Web_API] Successfully updated repository metrics

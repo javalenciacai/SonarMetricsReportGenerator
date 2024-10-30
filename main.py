@@ -234,19 +234,20 @@ def main():
                         scheduler
                     )
         else:
-            projects = sonar_api.get_projects()
-            
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
 
-            for project in projects:
-                project_names[project['key']] = f"✅ {project['name']}"
-            
             for project in all_projects_status:
+                status_prefix = "✅"
                 if not project['is_active']:
-                    deletion_mark = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
-                    project_names[project['repo_key']] = f"{deletion_mark} {project['name']} (Inactive)"
+                    status_prefix = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
+                project_names[project['repo_key']] = f"{status_prefix} {project['name']}"
+
+            sonar_projects = sonar_api.get_projects()
             
+            for project in sonar_projects:
+                project_names[project['key']] = f"✅ {project['name']}"
+
             project_names['all'] = "📊 All Projects"
 
             with st.sidebar:
@@ -277,7 +278,7 @@ def main():
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
                 projects_data = {}
-                for project in projects:
+                for project in sonar_projects:
                     metrics = sonar_api.get_project_metrics(project['key'])
                     if metrics:
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
