@@ -76,21 +76,6 @@ def handle_inactive_project(project_key, metrics_processor):
                 else:
                     st.error(f"Failed to mark project: {msg}")
 
-def handle_interval_update():
-    """Handle update interval changes"""
-    if hasattr(st.session_state, 'update_interval_changed') and st.session_state.update_interval_changed:
-        new_interval = st.session_state.new_interval
-        scheduler.schedule_metrics_update(
-            update_entity_metrics,
-            new_interval['entity_type'],
-            new_interval['entity_id'],
-            new_interval['interval']
-        )
-        # Reset the state
-        st.session_state.update_interval_changed = False
-        st.session_state.new_interval = None
-        st.rerun()
-
 def main():
     try:
         st.set_page_config(
@@ -111,8 +96,6 @@ def main():
             st.session_state.show_inactive_projects = True
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
-            st.session_state.update_interval_changed = False
-            st.session_state.new_interval = None
 
         initialize_database()
         
@@ -120,9 +103,6 @@ def main():
 
         if not scheduler.scheduler.running:
             scheduler.start()
-
-        # Handle any pending interval updates
-        handle_interval_update()
 
         sidebar = setup_sidebar()
 
@@ -180,11 +160,14 @@ def main():
                         scheduler
                     )
         else:
+            # Individual Projects View with optimized refreshes
             active_projects = sonar_api.get_projects()
             
+            # Get all projects including inactive ones
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
 
+            # Build project names dictionary
             for project in active_projects:
                 project_names[project['key']] = f"✅ {project['name']}"
             
@@ -207,11 +190,13 @@ def main():
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
 
+            # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
             if not show_inactive:
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
                                   if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
+            # Project selection
             selected_project = st.sidebar.selectbox(
                 "Select Project",
                 options=list(filtered_projects.keys()),
@@ -240,6 +225,7 @@ def main():
             elif selected_project:
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
                 
+                # Check if project is inactive
                 is_inactive = '⚠️' in project_names[selected_project] or '🗑️' in project_names[selected_project]
                 
                 if is_inactive:
@@ -278,6 +264,7 @@ def main():
                         display_metric_trends(historical_data)
                         create_download_report(historical_data)
 
+                # Display interval settings for individual project
                 if selected_project != 'all' and not is_inactive:
                     st.sidebar.markdown("---")
                     with st.sidebar:

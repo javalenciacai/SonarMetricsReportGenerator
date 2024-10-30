@@ -1,5 +1,6 @@
 import streamlit as st
 from database.schema import store_update_preferences, get_update_preferences
+from services.metrics_updater import update_entity_metrics
 
 def get_interval_options():
     """Get available update interval options"""
@@ -56,13 +57,12 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
                 
                 # Store preferences using the entity_id directly
                 if store_update_preferences(entity_type, entity_id, interval_seconds):
-                    # Let main.py handle the scheduler update to avoid circular imports
-                    st.session_state.update_interval_changed = True
-                    st.session_state.new_interval = {
-                        'entity_type': entity_type,
-                        'entity_id': entity_id,
-                        'interval': interval_seconds
-                    }
+                    scheduler_service.schedule_metrics_update(
+                        update_entity_metrics,
+                        entity_type,
+                        entity_id,
+                        interval_seconds
+                    )
                     st.success("✅ Update interval changed successfully")
                 else:
                     if entity_type == 'repository':
