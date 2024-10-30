@@ -1,13 +1,13 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
-from datetime import datetime, timezone
+from datetime import datetime
 import logging
 import json
 
 class SchedulerService:
     def __init__(self):
-        self.scheduler = BackgroundScheduler(timezone='UTC')  # Set scheduler to use UTC
+        self.scheduler = BackgroundScheduler()
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
         self.job_registry = {}
@@ -17,18 +17,35 @@ class SchedulerService:
             self._handle_job_event,
             EVENT_JOB_ERROR | EVENT_JOB_EXECUTED | EVENT_JOB_MISSED
         )
-        self.logger.info("Scheduler service initialized with UTC timezone")
+        self.logger.info("Scheduler service initialized")
         self.verify_scheduler_state()
+
+    def verify_scheduler_state(self):
+        """Verify scheduler state and log active jobs"""
+        try:
+            active_jobs = self.scheduler.get_jobs()
+            self.logger.info(f"Current scheduler state - Active jobs: {len(active_jobs)}")
+            for job in active_jobs:
+                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else "Not scheduled"
+                job_status = self.get_job_status(job.id)
+                self.logger.info(
+                    f"Job ID: {job.id}, Next run: {next_run}, "
+                    f"Status: {job_status.get('last_status') if job_status else 'unknown'}"
+                )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error verifying scheduler state: {str(e)}")
+            return False
 
     def _handle_job_event(self, event):
         """Handle job execution events with enhanced logging and status tracking"""
         job_id = event.job_id
         job_info = self.job_registry.get(job_id, {})
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         try:
             if event.exception:
-                self.logger.error(f"[{timestamp} UTC] Job {job_id} failed: {str(event.exception)}")
+                self.logger.error(f"[{timestamp}] Job {job_id} failed: {str(event.exception)}")
                 self.logger.error(f"Job details: Type: {job_info.get('type')}, "
                              f"Entity: {job_info.get('entity_type')} {job_info.get('entity_id')}")
 
@@ -50,7 +67,7 @@ class SchedulerService:
                 # Handle job retry logic
                 if job_info.get('error_count', 0) < 3:  # Limit retries
                     retry_interval = job_info.get('interval', 3600) // 2  # Retry at half the normal interval
-                    self.logger.info(f"[{timestamp} UTC] Scheduling retry for job {job_id} in {retry_interval} seconds")
+                    self.logger.info(f"[{timestamp}] Scheduling retry for job {job_id} in {retry_interval} seconds")
                     try:
                         self.schedule_metrics_update(
                             event.job.func,
@@ -60,12 +77,12 @@ class SchedulerService:
                             is_retry=True
                         )
                     except Exception as e:
-                        self.logger.error(f"[{timestamp} UTC] Failed to schedule retry for job {job_id}: {str(e)}")
+                        self.logger.error(f"[{timestamp}] Failed to schedule retry for job {job_id}: {str(e)}")
                 else:
-                    self.logger.error(f"[{timestamp} UTC] Job {job_id} exceeded retry limit (3 attempts)")
+                    self.logger.error(f"[{timestamp}] Job {job_id} exceeded retry limit (3 attempts)")
 
             elif event.code == EVENT_JOB_MISSED:
-                self.logger.warning(f"[{timestamp} UTC] Job {job_id} missed scheduled execution")
+                self.logger.warning(f"[{timestamp}] Job {job_id} missed scheduled execution")
                 self.job_registry[job_id] = {
                     **job_info,
                     'last_status': 'missed',
@@ -80,7 +97,7 @@ class SchedulerService:
                     success, execution_details = True, {}
 
                 status = 'success' if success else 'failed'
-                self.logger.info(f"[{timestamp} UTC] Job {job_id} executed with status: {status}")
+                self.logger.info(f"[{timestamp}] Job {job_id} executed with status: {status}")
 
                 # Update job registry with execution details
                 self.job_registry[job_id] = {
@@ -100,36 +117,19 @@ class SchedulerService:
                 # Verify next execution
                 job = self.scheduler.get_job(job_id)
                 if job and job.next_run_time:
-                    self.logger.info(f"[{timestamp} UTC] Next execution for {job_id} scheduled at: "
-                                f"{job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+                    self.logger.info(f"[{timestamp}] Next execution for {job_id} scheduled at: "
+                                f"{job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 else:
-                    self.logger.warning(f"[{timestamp} UTC] Job {job_id} has no next execution time scheduled")
+                    self.logger.warning(f"[{timestamp}] Job {job_id} has no next execution time scheduled")
 
         except Exception as e:
-            self.logger.error(f"[{timestamp} UTC] Error handling job event: {str(e)}")
+            self.logger.error(f"[{timestamp}] Error handling job event: {str(e)}")
             self.job_registry[job_id] = {
                 **job_info,
                 'last_status': 'error',
                 'last_error': str(e),
                 'last_run': timestamp
             }
-
-    def verify_scheduler_state(self):
-        """Verify scheduler state and log active jobs"""
-        try:
-            active_jobs = self.scheduler.get_jobs()
-            self.logger.info(f"Current scheduler state - Active jobs: {len(active_jobs)}")
-            for job in active_jobs:
-                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else "Not scheduled"
-                job_status = self.get_job_status(job.id)
-                self.logger.info(
-                    f"Job ID: {job.id}, Next run: {next_run}, "
-                    f"Status: {job_status.get('last_status') if job_status else 'unknown'}"
-                )
-            return True
-        except Exception as e:
-            self.logger.error(f"Error verifying scheduler state: {str(e)}")
-            return False
 
     def start(self):
         """Start the scheduler with enhanced error handling"""
@@ -146,12 +146,12 @@ class SchedulerService:
     def schedule_metrics_update(self, job_func, entity_type, entity_id, interval_seconds, is_retry=False):
         """Schedule a metrics update job with enhanced status tracking"""
         job_id = f"metrics_update_{entity_type}_{entity_id}"
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:
             # Remove existing job if it exists
             if not is_retry and job_id in self.job_registry:
-                self.logger.debug(f"[{timestamp} UTC] Removing existing job: {job_id}")
+                self.logger.debug(f"[{timestamp}] Removing existing job: {job_id}")
                 self.scheduler.remove_job(job_id)
             
             trigger = IntervalTrigger(seconds=interval_seconds)
@@ -185,7 +185,7 @@ class SchedulerService:
             }
             
             self.logger.info(
-                f"[{timestamp} UTC] {'Retry scheduled' if is_retry else 'Scheduled'} "
+                f"[{timestamp}] {'Retry scheduled' if is_retry else 'Scheduled'} "
                 f"metrics update for {entity_type} {entity_id} "
                 f"every {interval_seconds} seconds"
             )
@@ -199,7 +199,7 @@ class SchedulerService:
             return True
             
         except Exception as e:
-            self.logger.error(f"[{timestamp} UTC] Failed to schedule metrics update job: {str(e)}")
+            self.logger.error(f"[{timestamp}] Failed to schedule metrics update job: {str(e)}")
             raise
 
     def get_job_status(self, job_id):
@@ -208,8 +208,7 @@ class SchedulerService:
         if status:
             job = self.scheduler.get_job(job_id)
             if job:
-                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else None
-                status['next_run'] = next_run
+                status['next_run'] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None
         return status
 
     def get_all_job_statuses(self):
@@ -217,11 +216,9 @@ class SchedulerService:
         return {
             job_id: {
                 **status,
-                'next_run': (
-                    self.scheduler.get_job(job_id).next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-                    if self.scheduler.get_job(job_id) and self.scheduler.get_job(job_id).next_run_time
-                    else None
-                )
+                'next_run': self.scheduler.get_job(job_id).next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+                if self.scheduler.get_job(job_id) and self.scheduler.get_job(job_id).next_run_time
+                else None
             }
             for job_id, status in self.job_registry.items()
         }

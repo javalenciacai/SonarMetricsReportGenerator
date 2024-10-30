@@ -1,22 +1,10 @@
-try:
-    import streamlit as st
-    import pandas as pd
-    from services.metric_analyzer import MetricAnalyzer
-    from utils.helpers import format_code_lines, format_technical_debt
-    from database.schema import get_update_preferences
-    from database.connection import execute_query
-    from datetime import datetime, timezone
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    import plotly.express as px
-    import logging
-except ImportError as e:
-    logging.error(f"Error importing dependencies: {str(e)}")
-    raise
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import streamlit as st
+import pandas as pd
+from services.metric_analyzer import MetricAnalyzer
+from utils.helpers import format_code_lines, format_technical_debt
+from database.schema import get_update_preferences
+from database.connection import execute_query
+from datetime import datetime
 
 def format_update_interval(seconds):
     """Format update interval in a human-readable way"""
@@ -29,195 +17,415 @@ def format_update_interval(seconds):
     return f"{seconds}s"
 
 def format_last_update(timestamp):
-    """Format last update timestamp in UTC format"""
+    """Format last update timestamp in a human-readable way"""
     if not timestamp:
         return "No updates yet"
+    
     try:
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         diff = now - timestamp
-        return f"{diff.days}d {diff.seconds//3600}h ago (UTC)" if diff.days > 0 else \
-               f"{diff.seconds//3600}h {(diff.seconds%3600)//60}m ago (UTC)" if diff.seconds >= 3600 else \
-               f"{diff.seconds//60}m ago (UTC)" if diff.seconds >= 60 else \
-               f"{diff.seconds}s ago (UTC)"
-    except Exception as e:
-        logger.error(f"Error formatting timestamp: {str(e)}")
+        
+        if diff.days > 0:
+            return f"{diff.days}d ago"
+        elif diff.seconds >= 3600:
+            return f"{diff.seconds//3600}h ago"
+        elif diff.seconds >= 60:
+            return f"{diff.seconds//60}m ago"
+        return f"{diff.seconds}s ago"
+    except (ValueError, TypeError) as e:
+        print(f"Error formatting timestamp: {str(e)}")
         return "Invalid timestamp"
 
-def display_current_metrics(metrics):
-    """Display current metrics with status indicators"""
-    if not metrics:
-        st.warning("No metrics data available")
-        return
+def get_last_update_timestamp(project_key):
+    """Get the latest timestamp from metrics table for a project"""
+    query = """
+    SELECT m.timestamp
+    FROM metrics m
+    JOIN repositories r ON r.id = m.repository_id
+    WHERE r.repo_key = %s
+    ORDER BY m.timestamp DESC
+    LIMIT 1;
+    """
+    try:
+        result = execute_query(query, (project_key,))
+        if result and result[0]:
+            return result[0][0]
+        return None
+    except Exception as e:
+        print(f"Error getting last update timestamp: {str(e)}")
+        return None
 
+def get_project_update_interval(project_key):
+    """Get update interval from repositories table"""
+    query = """
+    SELECT update_interval
+    FROM repositories
+    WHERE repo_key = %s;
+    """
+    try:
+        result = execute_query(query, (project_key,))
+        if result and result[0]:
+            return result[0][0]
+        return 3600  # Default to 1 hour
+    except Exception as e:
+        print(f"Error getting update interval: {str(e)}")
+        return 3600
+
+def create_metric_card(title, value, status, help_text):
+    """Create a styled metric card with help tooltip"""
+    st.markdown(f"""
+        <div style="
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background: #1A1F25;
+            border: 1px solid #2D3748;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.24);
+            margin-bottom: 1rem;">
+            <div style="color: #A0AEC0; font-size: 0.8rem;">{title}</div>
+            <div style="font-size: 1.5rem; font-weight: bold; margin: 0.5rem 0; color: #FAFAFA;">
+                {value} {status}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    if help_text:
+        st.markdown(f'<small style="color: #A0AEC0;">{help_text}</small>', unsafe_allow_html=True)
+
+def display_multi_project_metrics(projects_data):
+    """Display metrics for multiple projects in a comparative view"""
+    st.markdown("""
+        <style>
+        .project-card {
+            background: #1A1F25;
+            border: 1px solid #2D3748;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .metric-item {
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            background: #2D3748;
+        }
+        .metric-title {
+            color: #A0AEC0;
+            font-size: 0.8rem;
+        }
+        .metric-value {
+            color: #FAFAFA;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .totals-card {
+            background: #2D3748;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .update-interval {
+            color: #A0AEC0;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     analyzer = MetricAnalyzer()
-    quality_score = analyzer.calculate_quality_score(metrics)
     
-    # Display quality score with status indicator
-    status = "🟢" if quality_score >= 80 else "🟡" if quality_score >= 60 else "🔴"
-    st.markdown(f"## Quality Score: {status} {quality_score:.1f}/100")
+    metrics_list = []
+    for project_key, data in projects_data.items():
+        metrics = data['metrics']
+        metrics['project_key'] = project_key
+        metrics['project_name'] = data['name']
+        metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
+        
+        # Get update interval directly from repositories table
+        metrics['update_interval'] = get_project_update_interval(project_key)
+        
+        # Get last update timestamp from metrics table
+        metrics['last_update'] = get_last_update_timestamp(project_key)
+        
+        metrics_list.append(metrics)
     
-    # Create three columns for metrics display
+    df = pd.DataFrame(metrics_list)
+    
+    total_lines = df['ncloc'].sum()
+    total_debt = df['sqale_index'].sum()
+    
+    st.markdown(f"""
+        <div class="totals-card">
+            <h3 style="color: #FAFAFA;">📊 Organization Totals</h3>
+            <div class="metric-grid">
+                <div class="metric-item">
+                    <div class="metric-title">Total Lines of Code</div>
+                    <div class="metric-value">{format_code_lines(total_lines)} 📏</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-title">Total Technical Debt</div>
+                    <div class="metric-value">{format_technical_debt(total_debt)} ⏱️</div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    df = df.sort_values('quality_score', ascending=False)
+    
+    for _, row in df.iterrows():
+        interval_display = format_update_interval(row['update_interval'])
+        last_update_display = format_last_update(row['last_update'])
+        
+        st.markdown(f"""
+            <div class="project-card">
+                <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
+                <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
+                <div class="update-interval">
+                    <span>⏱️ Update interval: {interval_display}</span>
+                    <span>•</span>
+                    <span>🕒 {last_update_display}</span>
+                </div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-title">Lines of Code</div>
+                        <div class="metric-value">{format_code_lines(row['ncloc'])} 📏</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Technical Debt</div>
+                        <div class="metric-value">{format_technical_debt(row['sqale_index'])} ⏱️</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Bugs</div>
+                        <div class="metric-value">{int(row['bugs'])} 🐛</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Vulnerabilities</div>
+                        <div class="metric-value">{int(row['vulnerabilities'])} ⚠️</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Code Smells</div>
+                        <div class="metric-value">{int(row['code_smells'])} 🔧</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Coverage</div>
+                        <div class="metric-value">{row['coverage']:.1f}% 📊</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Duplication</div>
+                        <div class="metric-value">{row['duplicated_lines_density']:.1f}% 📝</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+def display_current_metrics(metrics_data):
+    """Display current metrics for a single project"""
+    st.markdown("""
+        <style>
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .big-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #FAFAFA;
+        }
+        .trend-positive { color: #48BB78; }
+        .trend-negative { color: #F56565; }
+        .trend-neutral { color: #A0AEC0; }
+        .stMarkdown {
+            color: #FAFAFA;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    analyzer = MetricAnalyzer()
+    quality_score = analyzer.calculate_quality_score(metrics_data)
+    metric_status = analyzer.get_metric_status(metrics_data)
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown('<h3 style="color: #FAFAFA;">Executive Dashboard</h3>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #A0AEC0;">Real-time code quality metrics and insights</p>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+            <div style="text-align: right;">
+                <div style="font-size: 0.9rem; color: #A0AEC0;">Overall Quality Score</div>
+                <div class="big-number">{quality_score:.1f}</div>
+                <div style="font-size: 0.8rem; color: #A0AEC0;">out of 100</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('<hr style="border-color: #2D3748;">', unsafe_allow_html=True)
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("### 🛡️ Security & Reliability")
-        st.metric("Bugs 🐛", metrics.get('bugs', 0))
-        st.metric("Vulnerabilities ⚠️", metrics.get('vulnerabilities', 0))
-        st.metric("Code Smells 🔧", metrics.get('code_smells', 0))
-    
+        st.markdown('<h4 style="color: #FAFAFA;">📏 Project Size & Debt</h4>', unsafe_allow_html=True)
+        ncloc = int(metrics_data.get('ncloc', 0))
+        sqale_index = int(metrics_data.get('sqale_index', 0))
+        create_metric_card(
+            "Lines of Code",
+            format_code_lines(ncloc),
+            "📏",
+            "Total number of lines of code (excluding comments and blank lines)"
+        )
+        create_metric_card(
+            "Technical Debt",
+            format_technical_debt(sqale_index),
+            "⏱️",
+            "Estimated time to fix all code smells"
+        )
+
     with col2:
-        st.markdown("### 📊 Coverage & Quality")
-        st.metric("Coverage 📈", f"{metrics.get('coverage', 0):.1f}%")
-        st.metric("Duplication 📝", f"{metrics.get('duplicated_lines_density', 0):.1f}%")
+        st.markdown('<h4 style="color: #FAFAFA;">🛡️ Security & Reliability</h4>', unsafe_allow_html=True)
+        bugs = int(metrics_data.get('bugs', 0))
+        vulnerabilities = int(metrics_data.get('vulnerabilities', 0))
+        create_metric_card(
+            "Bugs",
+            bugs,
+            "🐛" if bugs > 0 else "✅",
+            "Number of reliability issues found in the code"
+        )
+        create_metric_card(
+            "Vulnerabilities",
+            vulnerabilities,
+            "⚠️" if vulnerabilities > 0 else "✅",
+            "Number of security vulnerabilities detected"
+        )
     
     with col3:
-        st.markdown("### 📏 Size & Complexity")
-        st.metric("Lines of Code", format_code_lines(metrics.get('ncloc', 0)))
-        st.metric("Technical Debt", format_technical_debt(metrics.get('sqale_index', 0)))
+        st.markdown('<h4 style="color: #FAFAFA;">🔍 Code Quality</h4>', unsafe_allow_html=True)
+        code_smells = int(metrics_data.get('code_smells', 0))
+        coverage = f"{metrics_data.get('coverage', 0):.1f}%"
+        duplications = f"{metrics_data.get('duplicated_lines_density', 0):.1f}%"
+        coverage_status = metric_status.get('coverage', 'neutral')
+        
+        create_metric_card(
+            "Code Smells",
+            code_smells,
+            "🔧" if code_smells > 0 else "✅",
+            "Maintainability issues that might lead to bugs"
+        )
+        create_metric_card(
+            "Test Coverage",
+            coverage,
+            "🟢" if coverage_status == 'good' else "🟡" if coverage_status == 'warning' else "🔴",
+            "Percentage of code covered by unit tests"
+        )
+        create_metric_card(
+            "Code Duplication",
+            duplications,
+            "📝",
+            "Percentage of duplicated lines in the codebase"
+        )
 
 def create_download_report(data):
-    """Create and offer downloadable CSV report with UTC timestamps"""
-    try:
-        if isinstance(data, dict) and 'metrics' in data:
-            # Single project data
-            df = pd.DataFrame([data['metrics']])
-        elif isinstance(data, list):
-            # Historical or multi-project data
-            df = pd.DataFrame(data)
-        else:
-            # Raw metrics data
-            df = pd.DataFrame([data])
-        
-        # Convert timestamps to UTC
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC')
-            # Add UTC indicator to timestamp column
-            df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S UTC')
-        
-        # Generate timestamp for filename in UTC
-        current_time = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_UTC")
-        csv = df.to_csv(index=False)
-        st.download_button(
-            "📥 Download Report",
-            csv,
-            f"metrics_report_{current_time}.csv",
-            "text/csv",
-            key='download-csv'
-        )
-    except Exception as e:
-        logger.error(f"Error creating download report: {str(e)}")
-        st.error("Failed to create download report")
-
-def display_multi_project_metrics(projects_data):
-    """Display metrics for multiple projects with UTC timestamps"""
-    if not projects_data:
-        st.warning("No project data available")
-        return
+    """Create downloadable CSV report"""
+    st.markdown('<h3 style="color: #FAFAFA;">📥 Download Report</h3>', unsafe_allow_html=True)
+    df = pd.DataFrame(data)
     
-    try:
-        # Display current time in UTC
-        st.markdown("## 📊 Multi-Project Overview")
-        st.markdown(f"Last Updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    analyzer = MetricAnalyzer()
+    df['quality_score'] = df.apply(lambda row: analyzer.calculate_quality_score(row.to_dict()), axis=1)
+    
+    status_df = pd.DataFrame([analyzer.get_metric_status(row.to_dict()) 
+                           for _, row in df.iterrows()])
+    
+    if 'sqale_index' in df.columns:
+        df['technical_debt_formatted'] = df['sqale_index'].apply(format_technical_debt)
+    if 'ncloc' in df.columns:
+        df['lines_of_code_formatted'] = df['ncloc'].apply(format_code_lines)
+    
+    final_df = pd.concat([df, status_df], axis=1)
+    
+    csv = final_df.to_csv(index=False)
+    st.download_button(
+        label="📊 Download Detailed CSV Report",
+        data=csv,
+        file_name="sonarcloud_metrics_analysis.csv",
+        mime="text/csv",
+        help="Download a detailed CSV report containing all metrics and their historical data"
+    )
+
+def display_metric_trends(historical_data):
+    """Display metric trends over time"""
+    st.markdown('<h3 style="color: #FAFAFA;">📈 Trend Analysis</h3>', unsafe_allow_html=True)
+    
+    metrics = ['bugs', 'vulnerabilities', 'code_smells', 'coverage', 'duplicated_lines_density', 'ncloc', 'sqale_index']
+    analyzer = MetricAnalyzer()
+    
+    for metric in metrics:
+        trend_data = analyzer.calculate_trend(historical_data, metric)
+        period_comparison = analyzer.calculate_period_comparison(historical_data, metric)
         
-        # Create a DataFrame for comparison
-        data_list = []
-        for key, data in projects_data.items():
-            try:
-                metrics = data['metrics'].copy()
-                metrics['name'] = data['name']
-                data_list.append(metrics)
-            except Exception as e:
-                logger.error(f"Error processing project {key}: {str(e)}")
-                continue
-        
-        if not data_list:
-            st.warning("No valid project data to display")
-            return
+        if trend_data and period_comparison:
+            metric_display_name = {
+                'ncloc': 'Lines of Code',
+                'sqale_index': 'Technical Debt'
+            }.get(metric, metric.replace('_', ' ').title())
             
-        df = pd.DataFrame(data_list)
-        
-        # Calculate quality scores
-        analyzer = MetricAnalyzer()
-        df['quality_score'] = df.apply(lambda row: analyzer.calculate_quality_score(row), axis=1)
-        
-        # Sort by quality score
-        df = df.sort_values('quality_score', ascending=False)
-        
-        # Display project cards
-        for _, row in df.iterrows():
-            status = "🟢" if row['quality_score'] >= 80 else "🟡" if row['quality_score'] >= 60 else "🔴"
-            
-            with st.expander(f"{status} {row['name']} - Score: {row['quality_score']:.1f}", expanded=True):
+            with st.expander(f"{metric_display_name} Analysis", expanded=True):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.metric("Bugs 🐛", int(row['bugs']))
-                    st.metric("Vulnerabilities ⚠️", int(row['vulnerabilities']))
-                    st.metric("Code Smells 🔧", int(row['code_smells']))
+                    trend_emoji = "📈" if trend_data['trend'] == 'increasing' else "📉" if trend_data['trend'] == 'decreasing' else "➡️"
+                    current_value = (
+                        format_code_lines(trend_data['current_value']) if metric == 'ncloc'
+                        else format_technical_debt(trend_data['current_value']) if metric == 'sqale_index'
+                        else f"{trend_data['current_value']:.2f}"
+                    )
+                    avg_value = (
+                        format_code_lines(trend_data['avg_value']) if metric == 'ncloc'
+                        else format_technical_debt(trend_data['avg_value']) if metric == 'sqale_index'
+                        else f"{trend_data['avg_value']:.2f}"
+                    )
+                    
+                    st.markdown(f"""
+                        <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
+                            <div style='font-size: 0.9rem; color: #A0AEC0;'>Current Trend</div>
+                            <div style='font-size: 1.2rem; margin: 0.5rem 0; color: #FAFAFA;'>{trend_emoji} {trend_data['trend'].title()}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current value: {current_value}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Average value: {avg_value}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
                 
                 with col2:
-                    st.metric("Coverage 📊", f"{row['coverage']:.1f}%")
-                    st.metric("Duplication 📝", f"{row['duplicated_lines_density']:.1f}%")
-                    st.metric("Lines of Code 📏", format_code_lines(row['ncloc']))
-        
-        # Create downloadable report
-        create_download_report(data_list)
-    except Exception as e:
-        logger.error(f"Error displaying multi-project metrics: {str(e)}")
-        st.error("Failed to display project metrics")
-
-def display_metric_trends(historical_data):
-    """Display metric trends with UTC timestamps"""
-    if not historical_data:
-        st.warning("No historical data available for trend analysis")
-        return
-    
-    try:
-        df = pd.DataFrame(historical_data)
-        # Ensure timestamps are in UTC
-        df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC')
-        
-        # Calculate 7-day and 30-day moving averages
-        for metric in ['bugs', 'vulnerabilities', 'code_smells', 'coverage', 'duplicated_lines_density']:
-            if metric in df.columns:
-                df[f'{metric}_7d_ma'] = df[metric].rolling(window=7).mean()
-                df[f'{metric}_30d_ma'] = df[metric].rolling(window=30).mean()
-        
-        st.markdown("## 📈 Trend Analysis")
-        
-        # Calculate and display trends with UTC timestamps
-        current = df.iloc[0] if not df.empty else None
-        week_ago = df[df['timestamp'] >= df['timestamp'].max() - pd.Timedelta(days=7)].mean()
-        
-        if current is not None:
-            # Display timestamp in UTC
-            st.markdown(f"### Last Update: {current['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
-            
-            metrics_display = {
-                'Bugs': ('bugs', '🐛'),
-                'Vulnerabilities': ('vulnerabilities', '⚠️'),
-                'Code Smells': ('code_smells', '🔧'),
-                'Coverage': ('coverage', '📊'),
-                'Duplication': ('duplicated_lines_density', '📝')
-            }
-            
-            for title, (metric, emoji) in metrics_display.items():
-                if metric in df.columns:
-                    current_val = current[metric]
-                    week_ago_val = week_ago[metric]
-                    change = ((current_val - week_ago_val) / week_ago_val * 100) if week_ago_val else 0
+                    change = period_comparison['change_percentage']
+                    is_improvement = (
+                        change > 0 if metric == 'ncloc'
+                        else change < 0 if metric == 'sqale_index'
+                        else period_comparison['improved']
+                    )
+                    change_color = "#48BB78" if is_improvement else "#F56565"
                     
-                    trend = "📈" if change > 5 else "📉" if change < -5 else "➡️"
+                    current_period = (
+                        format_code_lines(period_comparison['current_period_avg']) if metric == 'ncloc'
+                        else format_technical_debt(period_comparison['current_period_avg']) if metric == 'sqale_index'
+                        else f"{period_comparison['current_period_avg']:.2f}"
+                    )
+                    previous_period = (
+                        format_code_lines(period_comparison['previous_period_avg']) if metric == 'ncloc'
+                        else format_technical_debt(period_comparison['previous_period_avg']) if metric == 'sqale_index'
+                        else f"{period_comparison['previous_period_avg']:.2f}"
+                    )
                     
-                    st.markdown(f"### {emoji} {title}")
                     st.markdown(f"""
-                        Current: {current_val:.1f}
-                        {trend} {abs(change):.1f}% {'increase' if change > 0 else 'decrease'} over 7 days
-                        """)
-    except Exception as e:
-        logger.error(f"Error displaying metric trends: {str(e)}")
-        st.error("Failed to display metric trends")
+                        <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
+                            <div style='font-size: 0.9rem; color: #A0AEC0;'>7-Day Comparison</div>
+                            <div style='font-size: 1.2rem; margin: 0.5rem 0; color: {change_color};'>{change:+.1f}%</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current period avg: {current_period}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Previous period avg: {previous_period}</div>
+                        </div>
+                    """, unsafe_allow_html=True)

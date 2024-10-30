@@ -23,15 +23,12 @@ author = "agent"
 agentRequireRestartOnSave = false
 
 [[workflows.workflow.tasks]]
-task = "packager.installForAll"
-
-[[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -m streamlit run main.py"
+args = "streamlit run main.py"
 waitForPort = 5000
 
 [deployment]
-run = ["sh", "-c", "python -m streamlit run main.py"]
+run = ["sh", "-c", "streamlit run main.py"]
 
 [[ports]]
 localPort = 5000

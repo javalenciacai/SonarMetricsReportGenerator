@@ -6,14 +6,14 @@ from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from services.metrics_updater import update_entity_metrics
-import components.metrics_display as metrics_display
+from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
 from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
 from database.schema import initialize_database, get_update_preferences
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 import requests
 
 logging.basicConfig(
@@ -34,7 +34,7 @@ def register_repository_jobs():
         registered_count = 0
         failed_count = 0
         
-        logger.info(f"[{datetime.now(timezone.utc)}] Starting automatic job registration for {len(all_projects)} repositories")
+        logger.info(f"[{datetime.now()}] Starting automatic job registration for {len(all_projects)} repositories")
         
         for project in all_projects:
             if project['is_active']:
@@ -70,7 +70,7 @@ def verify_scheduler_status():
             active_jobs = scheduler.scheduler.get_jobs()
             logger.info(f"Scheduler is running with {len(active_jobs)} active jobs")
             for job in active_jobs:
-                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else "Not scheduled"
+                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else "Not scheduled"
                 logger.info(f"Active job: {job.id}, Next run: {next_run}")
                 job_status = scheduler.get_job_status(job.id)
                 if job_status:
@@ -317,9 +317,9 @@ def main():
                             logger.warning(f"Project {project['key']} marked as inactive - not found in SonarCloud")
                 
                 if projects_data:
-                    metrics_display.display_multi_project_metrics(projects_data)
+                    display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
-                    metrics_display.create_download_report(projects_data)
+                    create_download_report(projects_data)
             
             elif selected_project:
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
@@ -346,13 +346,13 @@ def main():
                         if project_data:
                             metrics_dict = {k: float(v) for k, v in project_data.items() 
                                          if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
-                            metrics_display.display_current_metrics(metrics_dict)
+                            display_current_metrics(metrics_dict)
                             
                             historical_data = metrics_processor.get_historical_data(selected_project)
                             if historical_data:
                                 plot_metrics_history(historical_data)
-                                metrics_display.display_metric_trends(historical_data)
-                                metrics_display.create_download_report(historical_data)
+                                display_metric_trends(historical_data)
+                                create_download_report(historical_data)
                     else:
                         st.error(f"Failed to fetch metrics: {str(e)}")
                 
@@ -361,13 +361,13 @@ def main():
                     metrics_processor.store_metrics(selected_project, 
                                                  project_names[selected_project].split(" ")[1], 
                                                  metrics_dict)
-                    metrics_display.display_current_metrics(metrics_dict)
+                    display_current_metrics(metrics_dict)
                     
                     historical_data = metrics_processor.get_historical_data(selected_project)
                     if historical_data:
                         plot_metrics_history(historical_data)
-                        metrics_display.display_metric_trends(historical_data)
-                        metrics_display.create_download_report(historical_data)
+                        display_metric_trends(historical_data)
+                        create_download_report(historical_data)
 
                 if selected_project != 'all' and not is_inactive:
                     st.sidebar.markdown("---")
