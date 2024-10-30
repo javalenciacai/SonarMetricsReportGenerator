@@ -5,6 +5,7 @@ from services.metrics_processor import MetricsProcessor
 from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
+from services.metrics_updater import update_entity_metrics
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
@@ -33,27 +34,6 @@ def setup_sidebar():
         """, unsafe_allow_html=True)
         st.markdown("---")
         return st.sidebar
-
-def update_entity_metrics(entity_type, entity_id):
-    """Update metrics for an entity (project or group)"""
-    try:
-        sonar_api = SonarCloudAPI(st.session_state.sonar_token)
-        metrics_processor = MetricsProcessor()
-        
-        if entity_type == 'repository':
-            metrics = sonar_api.get_project_metrics(entity_id)
-            if metrics:
-                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                metrics_processor.store_metrics(entity_id, "", metrics_dict)
-        elif entity_type == 'group':
-            projects = metrics_processor.get_projects_in_group(entity_id)
-            for project in projects:
-                metrics = sonar_api.get_project_metrics(project['repo_key'])
-                if metrics:
-                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                    metrics_processor.store_metrics(project['repo_key'], project['name'], metrics_dict)
-    except Exception as e:
-        print(f"Error updating metrics for {entity_type} {entity_id}: {str(e)}")
 
 def handle_inactive_project(project_key, metrics_processor):
     """Handle actions for inactive projects"""
