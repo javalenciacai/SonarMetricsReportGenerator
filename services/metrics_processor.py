@@ -1,18 +1,20 @@
+import pandas as pd
 from database.connection import execute_query
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+from database.schema import mark_project_for_deletion, unmark_project_for_deletion, delete_project_data
 
 class MetricsProcessor:
     @staticmethod
     def store_metrics(repo_key, name, metrics):
         """Store metrics and track project existence"""
         try:
-            # Store repository and update last_seen timestamp using UTC
+            # Store repository and update last_seen timestamp
             repo_query = """
             INSERT INTO repositories (repo_key, name, last_seen, is_active)
-            VALUES (%s, %s, CURRENT_TIMESTAMP AT TIME ZONE 'UTC', true)
+            VALUES (%s, %s, CURRENT_TIMESTAMP, true)
             ON CONFLICT (repo_key) DO UPDATE
             SET name = EXCLUDED.name,
-                last_seen = CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+                last_seen = CURRENT_TIMESTAMP,
                 is_active = true
             RETURNING id;
             """
@@ -21,13 +23,13 @@ class MetricsProcessor:
                 raise Exception("Failed to get repository ID")
             repo_id = result[0][0]
 
-            # Store metrics with all required columns using UTC timestamp
+            # Store metrics with all required columns
             metrics_query = """
             INSERT INTO metrics (
                 repository_id, bugs, vulnerabilities, code_smells,
                 coverage, duplicated_lines_density, ncloc, sqale_index,
                 timestamp
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP AT TIME ZONE 'UTC');
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
             """
             metrics_data = (
                 repo_id,
@@ -57,7 +59,7 @@ class MetricsProcessor:
             m.duplicated_lines_density,
             m.ncloc,
             m.sqale_index,
-            (m.timestamp AT TIME ZONE 'UTC')::text as timestamp
+            m.timestamp::text as timestamp
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
         WHERE r.repo_key = %s
@@ -78,11 +80,10 @@ class MetricsProcessor:
             m.duplicated_lines_density,
             m.ncloc,
             m.sqale_index,
-            (m.timestamp AT TIME ZONE 'UTC')::text as timestamp,
-            r.last_seen AT TIME ZONE 'UTC' as last_seen,
+            m.timestamp::text as timestamp,
+            r.last_seen,
             r.is_active,
-            r.is_marked_for_deletion,
-            CURRENT_TIMESTAMP AT TIME ZONE 'UTC' - r.last_seen AT TIME ZONE 'UTC' as inactive_duration
+            CURRENT_TIMESTAMP - r.last_seen as inactive_duration
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
         WHERE r.repo_key = %s
@@ -100,14 +101,57 @@ class MetricsProcessor:
             repo_key,
             name,
             is_active,
-            last_seen AT TIME ZONE 'UTC' as last_seen,
-            created_at AT TIME ZONE 'UTC' as created_at,
-            CURRENT_TIMESTAMP AT TIME ZONE 'UTC' - last_seen AT TIME ZONE 'UTC' as inactive_duration
+            last_seen,
+            created_at,
+            CURRENT_TIMESTAMP - last_seen as inactive_duration
         FROM repositories
         WHERE group_id = %s
         ORDER BY name;
         """
         result = execute_query(query, (group_id,))
+        return [dict(row) for row in result] if result else []
+
+    @staticmethod
+    def get_group_metrics_summary(group_id):
+        """Get aggregated metrics for a group"""
+        query = """
+        SELECT 
+            SUM(m.bugs) as total_bugs,
+            SUM(m.vulnerabilities) as total_vulnerabilities,
+            SUM(m.code_smells) as total_code_smells,
+            AVG(m.coverage) as avg_coverage,
+            AVG(m.duplicated_lines_density) as avg_duplication,
+            SUM(m.ncloc) as total_ncloc,
+            SUM(m.sqale_index) as total_debt
+        FROM repositories r
+        JOIN metrics m ON m.repository_id = r.id
+        WHERE r.group_id = %s
+        AND m.timestamp = (
+            SELECT MAX(timestamp)
+            FROM metrics
+            WHERE repository_id = r.id
+        );
+        """
+        result = execute_query(query, (group_id,))
+        return dict(result[0]) if result else None
+
+    @staticmethod
+    def get_inactive_projects(days=30):
+        """Get projects that haven't been updated in the specified number of days"""
+        query = """
+        SELECT 
+            repo_key,
+            name,
+            last_seen,
+            created_at,
+            is_marked_for_deletion,
+            is_active,
+            CURRENT_TIMESTAMP - last_seen as inactive_duration
+        FROM repositories
+        WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '%s days'
+        ORDER BY last_seen DESC;
+        """
+        result = execute_query(query, (days,))
         return [dict(row) for row in result] if result else []
 
     @staticmethod
@@ -119,10 +163,10 @@ class MetricsProcessor:
             name,
             is_active,
             is_marked_for_deletion,
-            last_seen AT TIME ZONE 'UTC' as last_seen,
-            created_at AT TIME ZONE 'UTC' as created_at,
+            last_seen,
+            created_at,
             group_id,
-            CURRENT_TIMESTAMP AT TIME ZONE 'UTC' - last_seen AT TIME ZONE 'UTC' as inactive_duration,
+            CURRENT_TIMESTAMP - last_seen as inactive_duration,
             (SELECT row_to_json(m.*)
              FROM metrics m
              WHERE m.repository_id = r.id
@@ -135,3 +179,34 @@ class MetricsProcessor:
         """
         result = execute_query(query)
         return [dict(row) for row in result] if result else []
+
+    @staticmethod
+    def check_and_mark_inactive_projects(active_project_keys):
+        """Check and mark projects as inactive if they are not in the active projects list"""
+        query = """
+        UPDATE repositories
+        SET is_active = false
+        WHERE repo_key NOT IN %s
+            AND is_active = true;
+        """
+        try:
+            if active_project_keys:
+                execute_query(query, (tuple(active_project_keys),))
+            return True, "Inactive projects updated"
+        except Exception as e:
+            return False, f"Error updating inactive projects: {str(e)}"
+
+    @staticmethod
+    def mark_project_for_deletion(repo_key):
+        """Mark a project for deletion"""
+        return mark_project_for_deletion(repo_key)
+
+    @staticmethod
+    def unmark_project_for_deletion(repo_key):
+        """Remove deletion mark from a project"""
+        return unmark_project_for_deletion(repo_key)
+
+    @staticmethod
+    def delete_project_data(repo_key):
+        """Delete all data for a specific project"""
+        return delete_project_data(repo_key)

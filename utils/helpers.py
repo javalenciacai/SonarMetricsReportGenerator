@@ -6,11 +6,8 @@ def parse_metric_value(value):
         return 0.0
 
 def format_timestamp(timestamp):
-    """Format timestamp for display in UTC"""
-    if timestamp.tzinfo is None:
-        from datetime import timezone
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    return timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+    """Format timestamp for display"""
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 def format_code_lines(lines):
     """Format lines of code with K/M suffixes"""

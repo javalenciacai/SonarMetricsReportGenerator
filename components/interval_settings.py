@@ -1,7 +1,6 @@
 import streamlit as st
 from database.schema import store_update_preferences, get_update_preferences
 from services.metrics_updater import update_entity_metrics
-from datetime import datetime, timezone
 
 def get_interval_options():
     """Get available update interval options"""
@@ -16,16 +15,6 @@ def get_interval_options():
         '12 hours': 43200,
         '24 hours': 86400
     }
-
-def format_timestamp_utc(timestamp):
-    """Format timestamp in UTC"""
-    if timestamp:
-        if isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
-    return None
 
 def display_interval_settings(entity_type, entity_id, scheduler_service):
     """Display and manage update interval settings"""
@@ -86,8 +75,7 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
                 st.error(f"❌ Error updating settings: {str(e)}")
     
     if last_update:
-        formatted_update = format_timestamp_utc(last_update)
-        st.info(f"🕒 Last updated: {formatted_update}")
+        st.info(f"🕒 Last updated: {last_update}")
     
     st.markdown("""
         <small style='color: #A0AEC0;'>
