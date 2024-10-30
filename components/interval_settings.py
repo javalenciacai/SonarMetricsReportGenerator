@@ -54,21 +54,7 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
             try:
                 interval_seconds = interval_options[new_interval]
                 
-                # Handle entity ID conversion
-                numeric_id = None
-                if entity_type == 'repository':
-                    if str(entity_id).isdigit():
-                        numeric_id = int(entity_id)
-                elif entity_type == 'group':
-                    if str(entity_id).isdigit():
-                        numeric_id = int(entity_id)
-                    else:
-                        numeric_id = entity_id  # Group IDs are already numeric
-
-                if numeric_id is None:
-                    st.error("❌ Invalid entity ID")
-                    return
-
+                # Store preferences using the entity_id directly
                 if store_update_preferences(entity_type, entity_id, interval_seconds):
                     scheduler_service.schedule_metrics_update(
                         update_entity_metrics,  # This function is defined in main.py
@@ -78,7 +64,10 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
                     )
                     st.success("✅ Update interval changed successfully")
                 else:
-                    st.error("❌ Failed to update interval settings")
+                    if entity_type == 'repository':
+                        st.error("❌ Failed to update interval settings: Project not found")
+                    else:
+                        st.error("❌ Failed to update interval settings: Group not found")
             except ValueError as e:
                 st.error(f"❌ Invalid input: {str(e)}")
             except Exception as e:

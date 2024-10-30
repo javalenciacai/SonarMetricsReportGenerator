@@ -30,19 +30,6 @@ def initialize_database():
     execute_query(create_groups_table)
     execute_query(create_repositories_table)
 
-    # Create update_preferences table
-    create_update_preferences_table = """
-    CREATE TABLE IF NOT EXISTS update_preferences (
-        id SERIAL PRIMARY KEY,
-        entity_type VARCHAR(50) NOT NULL,
-        entity_id INTEGER NOT NULL,
-        update_interval INTEGER NOT NULL DEFAULT 3600,
-        last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(entity_type, entity_id)
-    );
-    """
-    execute_query(create_update_preferences_table)
-
     # Create metrics table
     create_metrics_table = """
     CREATE TABLE IF NOT EXISTS metrics (
@@ -74,30 +61,34 @@ def initialize_database():
 def store_update_preferences(entity_type, entity_id, interval):
     """Store update interval preferences"""
     try:
-        # For repositories, convert repo_key to id
+        # For repositories, update directly in repositories table
         if entity_type == 'repository':
-            query = "SELECT id FROM repositories WHERE repo_key = %s;"
-            result = execute_query(query, (str(entity_id),))
-            if result:
-                entity_id = result[0][0]
-            else:
-                return False
-
-        # For groups, verify group exists
-        elif entity_type == 'group':
-            query = "SELECT id FROM project_groups WHERE id = %s;"
-            result = execute_query(query, (int(entity_id),))
+            repo_query = """
+            UPDATE repositories 
+            SET update_interval = %s 
+            WHERE repo_key = %s 
+            RETURNING id;
+            """
+            result = execute_query(repo_query, (interval, entity_id))
             if not result:
                 return False
+        
+        # For groups, update directly in project_groups table
+        elif entity_type == 'group':
+            try:
+                numeric_id = int(entity_id)
+                group_query = """
+                UPDATE project_groups 
+                SET update_interval = %s 
+                WHERE id = %s 
+                RETURNING id;
+                """
+                result = execute_query(group_query, (interval, numeric_id))
+                if not result:
+                    return False
+            except (ValueError, TypeError):
+                return False
 
-        # Store preferences
-        query = """
-        INSERT INTO update_preferences (entity_type, entity_id, update_interval)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (entity_type, entity_id) 
-        DO UPDATE SET update_interval = EXCLUDED.update_interval;
-        """
-        execute_query(query, (entity_type, entity_id, interval))
         return True
     except Exception as e:
         print(f"Error storing update preferences: {str(e)}")
@@ -106,47 +97,71 @@ def store_update_preferences(entity_type, entity_id, interval):
 def get_update_preferences(entity_type, entity_id):
     """Get update interval preferences"""
     try:
-        # For repositories, convert repo_key to id
         if entity_type == 'repository':
-            query = "SELECT id FROM repositories WHERE repo_key = %s;"
-            result = execute_query(query, (str(entity_id),))
+            query = """
+            SELECT 
+                r.update_interval,
+                m.timestamp as last_update
+            FROM repositories r
+            LEFT JOIN metrics m ON m.repository_id = r.id
+            WHERE r.repo_key = %s
+            ORDER BY m.timestamp DESC
+            LIMIT 1;
+            """
+            result = execute_query(query, (entity_id,))
             if result:
-                entity_id = result[0][0]
-            else:
-                return {'update_interval': 3600, 'last_update': None}
-
-        query = """
-        SELECT update_interval, last_update
-        FROM update_preferences
-        WHERE entity_type = %s AND entity_id = %s;
-        """
-        result = execute_query(query, (entity_type, entity_id))
-        return dict(result[0]) if result else {'update_interval': 3600, 'last_update': None}
+                return dict(result[0])
+            return {'update_interval': 3600, 'last_update': None}
+        
+        elif entity_type == 'group':
+            try:
+                numeric_id = int(entity_id)
+                query = """
+                SELECT 
+                    update_interval,
+                    created_at as last_update
+                FROM project_groups
+                WHERE id = %s;
+                """
+                result = execute_query(query, (numeric_id,))
+                if result:
+                    return dict(result[0])
+            except (ValueError, TypeError):
+                pass
+        
+        return {'update_interval': 3600, 'last_update': None}
     except Exception as e:
         print(f"Error getting update preferences: {str(e)}")
         return {'update_interval': 3600, 'last_update': None}
 
-def update_last_update_time(entity_type, entity_id):
-    """Update the last update timestamp"""
+def check_policy_acceptance(user_token):
+    """Check if a user has accepted the policies"""
+    query = """
+    SELECT EXISTS(
+        SELECT 1 FROM policy_acceptance 
+        WHERE user_token = %s
+    );
+    """
     try:
-        # For repositories, convert repo_key to id
-        if entity_type == 'repository':
-            query = "SELECT id FROM repositories WHERE repo_key = %s;"
-            result = execute_query(query, (str(entity_id),))
-            if result:
-                entity_id = result[0][0]
-            else:
-                return False
+        result = execute_query(query, (user_token,))
+        return result[0][0] if result else False
+    except Exception as e:
+        print(f"Error checking policy acceptance: {str(e)}")
+        return False
 
-        query = """
-        UPDATE update_preferences 
-        SET last_update = CURRENT_TIMESTAMP
-        WHERE entity_type = %s AND entity_id = %s;
-        """
-        execute_query(query, (entity_type, entity_id))
+def store_policy_acceptance(user_token):
+    """Store user's policy acceptance"""
+    query = """
+    INSERT INTO policy_acceptance (user_token, accepted_at, last_updated)
+    VALUES (%s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT (user_token) 
+    DO UPDATE SET last_updated = CURRENT_TIMESTAMP;
+    """
+    try:
+        execute_query(query, (user_token,))
         return True
     except Exception as e:
-        print(f"Error updating last update time: {str(e)}")
+        print(f"Error storing policy acceptance: {str(e)}")
         return False
 
 def mark_project_for_deletion(repo_key):
@@ -193,15 +208,6 @@ def delete_project_data(repo_key):
         """
         execute_query(delete_metrics_query, (repo_key,))
 
-        # Then delete from update_preferences
-        delete_prefs_query = """
-        DELETE FROM update_preferences
-        WHERE entity_type = 'repository' AND entity_id = (
-            SELECT id FROM repositories WHERE repo_key = %s
-        );
-        """
-        execute_query(delete_prefs_query, (repo_key,))
-
         # Finally delete the repository
         delete_repo_query = """
         DELETE FROM repositories
@@ -213,36 +219,6 @@ def delete_project_data(repo_key):
     except Exception as e:
         return False, f"Error deleting project data: {str(e)}"
 
-def check_policy_acceptance(user_token):
-    """Check if a user has accepted the policies"""
-    query = """
-    SELECT EXISTS(
-        SELECT 1 FROM policy_acceptance 
-        WHERE user_token = %s
-    );
-    """
-    try:
-        result = execute_query(query, (user_token,))
-        return result[0][0] if result else False
-    except Exception as e:
-        print(f"Error checking policy acceptance: {str(e)}")
-        return False
-
-def store_policy_acceptance(user_token):
-    """Store user's policy acceptance"""
-    query = """
-    INSERT INTO policy_acceptance (user_token, accepted_at, last_updated)
-    VALUES (%s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT (user_token) 
-    DO UPDATE SET last_updated = CURRENT_TIMESTAMP;
-    """
-    try:
-        execute_query(query, (user_token,))
-        return True
-    except Exception as e:
-        print(f"Error storing policy acceptance: {str(e)}")
-        return False
-
 def create_project_group(name, description):
     """Create a new project group"""
     query = """
@@ -252,13 +228,7 @@ def create_project_group(name, description):
     """
     try:
         result = execute_query(query, (name, description))
-        group_id = result[0][0] if result else None
-        
-        if group_id:
-            # Initialize update preferences for the new group
-            store_update_preferences('group', group_id, 3600)
-            return group_id
-        return None
+        return result[0][0] if result else None
     except Exception as e:
         print(f"Error creating project group: {str(e)}")
         return None
@@ -266,11 +236,9 @@ def create_project_group(name, description):
 def get_project_groups():
     """Get all project groups"""
     query = """
-    SELECT g.id, g.name, g.description, g.created_at,
-           p.update_interval, p.last_update
-    FROM project_groups g
-    LEFT JOIN update_preferences p ON p.entity_type = 'group' AND p.entity_id = g.id
-    ORDER BY g.name;
+    SELECT id, name, description, created_at, update_interval
+    FROM project_groups
+    ORDER BY name;
     """
     try:
         result = execute_query(query)
@@ -318,13 +286,6 @@ def delete_project_group(group_id):
         WHERE group_id = %s;
         """
         execute_query(remove_assignments_query, (group_id,))
-        
-        # Remove update preferences
-        delete_prefs_query = """
-        DELETE FROM update_preferences
-        WHERE entity_type = 'group' AND entity_id = %s;
-        """
-        execute_query(delete_prefs_query, (group_id,))
         
         # Finally delete the group
         delete_group_query = """
