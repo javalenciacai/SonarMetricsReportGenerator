@@ -16,9 +16,24 @@ class SchedulerService:
         self.scheduler.add_listener(self._handle_job_event, 
                                   EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
         self.logger.info("Scheduler service initialized")
+        self.verify_scheduler_state()
+
+    def verify_scheduler_state(self):
+        """Verify scheduler state and log active jobs"""
+        try:
+            active_jobs = self.scheduler.get_jobs()
+            self.logger.info(f"Current scheduler state - Active jobs: {len(active_jobs)}")
+            for job in active_jobs:
+                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else "Not scheduled"
+                self.logger.info(f"Job ID: {job.id}, Next run: {next_run}, "
+                               f"Function: {job.func.__name__}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error verifying scheduler state: {str(e)}")
+            return False
 
     def _handle_job_event(self, event):
-        """Handle job execution events with enhanced logging"""
+        """Handle job execution events with enhanced logging and verification"""
         job_id = event.job_id
         job_info = self.job_registry.get(job_id, {})
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -32,17 +47,23 @@ class SchedulerService:
                 self.logger.info(f"[{timestamp}] Attempting to reschedule failed job: {job_id}")
                 try:
                     # Update job status in registry
-                    self.job_registry[job_id]['last_status'] = 'failed'
-                    self.job_registry[job_id]['last_error'] = str(event.exception)
-                    self.job_registry[job_id]['last_run'] = timestamp
+                    self.job_registry[job_id].update({
+                        'last_status': 'failed',
+                        'last_error': str(event.exception),
+                        'last_run': timestamp,
+                        'error_count': self.job_registry[job_id].get('error_count', 0) + 1
+                    })
 
                     # Retry scheduling with the same parameters
-                    self.schedule_metrics_update(
-                        event.job.func,
-                        job_info['entity_type'],
-                        job_info['entity_id'],
-                        job_info['interval']
-                    )
+                    if self.job_registry[job_id].get('error_count', 0) <= 3:  # Limit retries
+                        self.schedule_metrics_update(
+                            event.job.func,
+                            job_info['entity_type'],
+                            job_info['entity_id'],
+                            job_info['interval']
+                        )
+                    else:
+                        self.logger.error(f"[{timestamp}] Job {job_id} exceeded retry limit (3 attempts)")
                 except Exception as e:
                     self.logger.error(f"[{timestamp}] Failed to reschedule job {job_id}: {str(e)}")
                     self.job_registry[job_id]['reschedule_error'] = str(e)
@@ -53,24 +74,31 @@ class SchedulerService:
                           f"Interval: {job_info.get('interval', 'unknown')}s")
 
             if job_id in self.job_registry:
-                # Update job status in registry
+                # Update job status in registry with execution metrics
                 self.job_registry[job_id].update({
                     'last_status': 'success',
                     'last_run': timestamp,
                     'last_error': None,
-                    'successful_runs': self.job_registry[job_id].get('successful_runs', 0) + 1
+                    'successful_runs': self.job_registry[job_id].get('successful_runs', 0) + 1,
+                    'error_count': 0  # Reset error count on successful execution
                 })
 
+                # Verify next execution time
+                job = self.scheduler.get_job(job_id)
+                if job and job.next_run_time:
+                    self.logger.info(f"[{timestamp}] Next execution for {job_id} scheduled at: "
+                                 f"{job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                else:
+                    self.logger.warning(f"[{timestamp}] Job {job_id} has no next execution time scheduled")
+
     def start(self):
-        """Start the scheduler with enhanced error handling and logging"""
+        """Start the scheduler with enhanced error handling and state verification"""
         try:
             if not self.scheduler.running:
                 self.scheduler.start()
                 self.logger.info("Scheduler started successfully")
-                active_jobs = self.scheduler.get_jobs()
-                self.logger.debug(f"Active jobs: {len(active_jobs)}")
-                for job in active_jobs:
-                    self.logger.debug(f"Active job: {job.id}, Next run: {job.next_run_time}")
+                if self.verify_scheduler_state():
+                    self.logger.info("Scheduler state verification completed successfully")
                 return True
             return True
         except Exception as e:
@@ -78,7 +106,7 @@ class SchedulerService:
             return False
 
     def schedule_metrics_update(self, job_func, entity_type, entity_id, interval_seconds):
-        """Schedule a metrics update job with enhanced logging and status tracking"""
+        """Schedule a metrics update job with enhanced logging and verification"""
         job_id = f"metrics_update_{entity_type}_{entity_id}"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -112,6 +140,7 @@ class SchedulerService:
                 'created_at': timestamp,
                 'last_scheduled': timestamp,
                 'successful_runs': 0,
+                'error_count': 0,
                 'last_status': 'scheduled',
                 'last_run': None,
                 'last_error': None
@@ -120,11 +149,16 @@ class SchedulerService:
             self.logger.info(f"[{timestamp}] Successfully scheduled metrics update for {entity_type} {entity_id} "
                          f"every {interval_seconds} seconds")
             
+            # Verify job registration and next execution
+            job = self.scheduler.get_job(job_id)
+            if job and job.next_run_time:
+                self.logger.info(f"[{timestamp}] Job {job_id} verified - First execution scheduled for: "
+                             f"{job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                raise Exception("Job verification failed - Job not properly registered")
+            
             # Log current scheduler state
-            active_jobs = self.scheduler.get_jobs()
-            self.logger.debug(f"Current active jobs: {len(active_jobs)}")
-            for job in active_jobs:
-                self.logger.debug(f"Job: {job.id}, Next run: {job.next_run_time}")
+            self.verify_scheduler_state()
             
             return True
             
