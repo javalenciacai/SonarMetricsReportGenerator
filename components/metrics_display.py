@@ -2,6 +2,76 @@ import streamlit as st
 import pandas as pd
 from services.metric_analyzer import MetricAnalyzer
 from utils.helpers import format_code_lines, format_technical_debt
+from database.schema import get_update_preferences
+from database.connection import execute_query
+from datetime import datetime
+
+def format_update_interval(seconds):
+    """Format update interval in a human-readable way"""
+    if seconds >= 86400:
+        return f"{seconds//86400}d"
+    elif seconds >= 3600:
+        return f"{seconds//3600}h"
+    elif seconds >= 60:
+        return f"{seconds//60}m"
+    return f"{seconds}s"
+
+def format_last_update(timestamp):
+    """Format last update timestamp in a human-readable way"""
+    if not timestamp:
+        return "No updates yet"
+    
+    try:
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        now = datetime.now()
+        diff = now - timestamp
+        
+        if diff.days > 0:
+            return f"{diff.days}d ago"
+        elif diff.seconds >= 3600:
+            return f"{diff.seconds//3600}h ago"
+        elif diff.seconds >= 60:
+            return f"{diff.seconds//60}m ago"
+        return f"{diff.seconds}s ago"
+    except (ValueError, TypeError) as e:
+        print(f"Error formatting timestamp: {str(e)}")
+        return "Invalid timestamp"
+
+def get_last_update_timestamp(project_key):
+    """Get the latest timestamp from metrics table for a project"""
+    query = """
+    SELECT m.timestamp
+    FROM metrics m
+    JOIN repositories r ON r.id = m.repository_id
+    WHERE r.repo_key = %s
+    ORDER BY m.timestamp DESC
+    LIMIT 1;
+    """
+    try:
+        result = execute_query(query, (project_key,))
+        if result and result[0]:
+            return result[0][0]
+        return None
+    except Exception as e:
+        print(f"Error getting last update timestamp: {str(e)}")
+        return None
+
+def get_project_update_interval(project_key):
+    """Get update interval from repositories table"""
+    query = """
+    SELECT update_interval
+    FROM repositories
+    WHERE repo_key = %s;
+    """
+    try:
+        result = execute_query(query, (project_key,))
+        if result and result[0]:
+            return result[0][0]
+        return 3600  # Default to 1 hour
+    except Exception as e:
+        print(f"Error getting update interval: {str(e)}")
+        return 3600
 
 def create_metric_card(title, value, status, help_text):
     """Create a styled metric card with help tooltip"""
@@ -59,27 +129,39 @@ def display_multi_project_metrics(projects_data):
             padding: 1rem;
             margin-bottom: 1rem;
         }
+        .update-interval {
+            color: #A0AEC0;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
         </style>
     """, unsafe_allow_html=True)
-
+    
     analyzer = MetricAnalyzer()
     
-    # Create a DataFrame for easy comparison
     metrics_list = []
     for project_key, data in projects_data.items():
         metrics = data['metrics']
         metrics['project_key'] = project_key
         metrics['project_name'] = data['name']
         metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
+        
+        # Get update interval directly from repositories table
+        metrics['update_interval'] = get_project_update_interval(project_key)
+        
+        # Get last update timestamp from metrics table
+        metrics['last_update'] = get_last_update_timestamp(project_key)
+        
         metrics_list.append(metrics)
     
     df = pd.DataFrame(metrics_list)
     
-    # Calculate totals
     total_lines = df['ncloc'].sum()
     total_debt = df['sqale_index'].sum()
     
-    # Display totals card
     st.markdown(f"""
         <div class="totals-card">
             <h3 style="color: #FAFAFA;">📊 Organization Totals</h3>
@@ -96,15 +178,21 @@ def display_multi_project_metrics(projects_data):
         </div>
     """, unsafe_allow_html=True)
     
-    # Sort projects by quality score
     df = df.sort_values('quality_score', ascending=False)
     
-    # Display project cards
     for _, row in df.iterrows():
+        interval_display = format_update_interval(row['update_interval'])
+        last_update_display = format_last_update(row['last_update'])
+        
         st.markdown(f"""
             <div class="project-card">
                 <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
                 <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
+                <div class="update-interval">
+                    <span>⏱️ Update interval: {interval_display}</span>
+                    <span>•</span>
+                    <span>🕒 {last_update_display}</span>
+                </div>
                 <div class="metric-grid">
                     <div class="metric-item">
                         <div class="metric-title">Lines of Code</div>
@@ -163,12 +251,10 @@ def display_current_metrics(metrics_data):
         </style>
     """, unsafe_allow_html=True)
     
-    # Calculate quality score and status
     analyzer = MetricAnalyzer()
     quality_score = analyzer.calculate_quality_score(metrics_data)
     metric_status = analyzer.get_metric_status(metrics_data)
     
-    # Create header with quality score
     col1, col2 = st.columns([2, 1])
     with col1:
         st.markdown('<h3 style="color: #FAFAFA;">Executive Dashboard</h3>', unsafe_allow_html=True)
@@ -184,7 +270,6 @@ def display_current_metrics(metrics_data):
     
     st.markdown('<hr style="border-color: #2D3748;">', unsafe_allow_html=True)
     
-    # Display metrics in organized sections
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -247,6 +332,33 @@ def display_current_metrics(metrics_data):
             "Percentage of duplicated lines in the codebase"
         )
 
+def create_download_report(data):
+    """Create downloadable CSV report"""
+    st.markdown('<h3 style="color: #FAFAFA;">📥 Download Report</h3>', unsafe_allow_html=True)
+    df = pd.DataFrame(data)
+    
+    analyzer = MetricAnalyzer()
+    df['quality_score'] = df.apply(lambda row: analyzer.calculate_quality_score(row.to_dict()), axis=1)
+    
+    status_df = pd.DataFrame([analyzer.get_metric_status(row.to_dict()) 
+                           for _, row in df.iterrows()])
+    
+    if 'sqale_index' in df.columns:
+        df['technical_debt_formatted'] = df['sqale_index'].apply(format_technical_debt)
+    if 'ncloc' in df.columns:
+        df['lines_of_code_formatted'] = df['ncloc'].apply(format_code_lines)
+    
+    final_df = pd.concat([df, status_df], axis=1)
+    
+    csv = final_df.to_csv(index=False)
+    st.download_button(
+        label="📊 Download Detailed CSV Report",
+        data=csv,
+        file_name="sonarcloud_metrics_analysis.csv",
+        mime="text/csv",
+        help="Download a detailed CSV report containing all metrics and their historical data"
+    )
+
 def display_metric_trends(historical_data):
     """Display metric trends over time"""
     st.markdown('<h3 style="color: #FAFAFA;">📈 Trend Analysis</h3>', unsafe_allow_html=True)
@@ -291,7 +403,6 @@ def display_metric_trends(historical_data):
                 
                 with col2:
                     change = period_comparison['change_percentage']
-                    # For ncloc and sqale_index, increasing is generally positive and negative respectively
                     is_improvement = (
                         change > 0 if metric == 'ncloc'
                         else change < 0 if metric == 'sqale_index'
@@ -318,34 +429,3 @@ def display_metric_trends(historical_data):
                             <div style='font-size: 0.9rem; color: #CBD5E0;'>Previous period avg: {previous_period}</div>
                         </div>
                     """, unsafe_allow_html=True)
-
-def create_download_report(data):
-    """Create downloadable CSV report"""
-    st.markdown('<h3 style="color: #FAFAFA;">📥 Download Report</h3>', unsafe_allow_html=True)
-    df = pd.DataFrame(data)
-    
-    # Add quality score calculation
-    analyzer = MetricAnalyzer()
-    df['quality_score'] = df.apply(lambda row: analyzer.calculate_quality_score(row.to_dict()), axis=1)
-    
-    # Calculate metric status
-    status_df = pd.DataFrame([analyzer.get_metric_status(row.to_dict()) 
-                           for _, row in df.iterrows()])
-    
-    # Format technical debt and lines of code
-    if 'sqale_index' in df.columns:
-        df['technical_debt_formatted'] = df['sqale_index'].apply(format_technical_debt)
-    if 'ncloc' in df.columns:
-        df['lines_of_code_formatted'] = df['ncloc'].apply(format_code_lines)
-    
-    # Combine all data
-    final_df = pd.concat([df, status_df], axis=1)
-    
-    csv = final_df.to_csv(index=False)
-    st.download_button(
-        label="📊 Download Detailed CSV Report",
-        data=csv,
-        file_name="sonarcloud_metrics_analysis.csv",
-        mime="text/csv",
-        help="Download a detailed CSV report containing all metrics and their historical data"
-    )

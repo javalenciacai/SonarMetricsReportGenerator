@@ -9,6 +9,7 @@ class SchedulerService:
         self.scheduler = BackgroundScheduler()
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
+        self.job_registry = {}
 
     def start(self):
         """Start the scheduler"""
@@ -21,6 +22,46 @@ class SchedulerService:
         if self.scheduler.running:
             self.scheduler.shutdown()
             self.logger.info("Scheduler stopped")
+
+    def schedule_metrics_update(self, job_func, entity_type, entity_id, interval_seconds):
+        """Schedule a metrics update job with custom interval"""
+        job_id = f"metrics_update_{entity_type}_{entity_id}"
+        
+        # Remove existing job if it exists
+        if job_id in self.job_registry:
+            self.scheduler.remove_job(job_id)
+        
+        trigger = IntervalTrigger(seconds=interval_seconds)
+        self.scheduler.add_job(
+            job_func,
+            trigger=trigger,
+            id=job_id,
+            name=f'Update Metrics for {entity_type} {entity_id}',
+            replace_existing=True,
+            args=[entity_type, entity_id]
+        )
+        self.job_registry[job_id] = {
+            'type': 'metrics_update',
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'interval': interval_seconds
+        }
+        self.logger.info(f"Scheduled metrics update for {entity_type} {entity_id} every {interval_seconds} seconds")
+
+    def update_metrics_interval(self, entity_type, entity_id, new_interval):
+        """Update the interval for an existing metrics update job"""
+        job_id = f"metrics_update_{entity_type}_{entity_id}"
+        if job_id in self.job_registry:
+            job_info = self.job_registry[job_id]
+            self.schedule_metrics_update(
+                self.scheduler.get_job(job_id).func,
+                entity_type,
+                entity_id,
+                new_interval
+            )
+            self.logger.info(f"Updated metrics interval for {entity_type} {entity_id} to {new_interval} seconds")
+            return True
+        return False
 
     def schedule_daily_report(self, job_func, hour=0, minute=0):
         """Schedule a daily report job"""
@@ -57,3 +98,13 @@ class SchedulerService:
             replace_existing=True
         )
         self.logger.info(f"Metric checks scheduled every {interval_hours} hours")
+
+    def remove_metrics_update_job(self, entity_type, entity_id):
+        """Remove a metrics update job"""
+        job_id = f"metrics_update_{entity_type}_{entity_id}"
+        if job_id in self.job_registry:
+            self.scheduler.remove_job(job_id)
+            del self.job_registry[job_id]
+            self.logger.info(f"Removed metrics update job for {entity_type} {entity_id}")
+            return True
+        return False

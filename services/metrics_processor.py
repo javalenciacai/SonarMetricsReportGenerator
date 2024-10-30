@@ -94,6 +94,48 @@ class MetricsProcessor:
         return dict(result[0]) if result else None
 
     @staticmethod
+    def get_projects_in_group(group_id):
+        """Get all projects in a specific group"""
+        query = """
+        SELECT 
+            repo_key,
+            name,
+            is_active,
+            last_seen,
+            created_at,
+            CURRENT_TIMESTAMP - last_seen as inactive_duration
+        FROM repositories
+        WHERE group_id = %s
+        ORDER BY name;
+        """
+        result = execute_query(query, (group_id,))
+        return [dict(row) for row in result] if result else []
+
+    @staticmethod
+    def get_group_metrics_summary(group_id):
+        """Get aggregated metrics for a group"""
+        query = """
+        SELECT 
+            SUM(m.bugs) as total_bugs,
+            SUM(m.vulnerabilities) as total_vulnerabilities,
+            SUM(m.code_smells) as total_code_smells,
+            AVG(m.coverage) as avg_coverage,
+            AVG(m.duplicated_lines_density) as avg_duplication,
+            SUM(m.ncloc) as total_ncloc,
+            SUM(m.sqale_index) as total_debt
+        FROM repositories r
+        JOIN metrics m ON m.repository_id = r.id
+        WHERE r.group_id = %s
+        AND m.timestamp = (
+            SELECT MAX(timestamp)
+            FROM metrics
+            WHERE repository_id = r.id
+        );
+        """
+        result = execute_query(query, (group_id,))
+        return dict(result[0]) if result else None
+
+    @staticmethod
     def get_inactive_projects(days=30):
         """Get projects that haven't been updated in the specified number of days"""
         query = """
@@ -123,6 +165,7 @@ class MetricsProcessor:
             is_marked_for_deletion,
             last_seen,
             created_at,
+            group_id,
             CURRENT_TIMESTAMP - last_seen as inactive_duration,
             (SELECT row_to_json(m.*)
              FROM metrics m
@@ -136,20 +179,6 @@ class MetricsProcessor:
         """
         result = execute_query(query)
         return [dict(row) for row in result] if result else []
-
-    @staticmethod
-    def mark_project_inactive(repo_key):
-        """Mark a project as inactive"""
-        query = """
-        UPDATE repositories
-        SET is_active = false
-        WHERE repo_key = %s;
-        """
-        try:
-            execute_query(query, (repo_key,))
-            return True, "Project marked as inactive"
-        except Exception as e:
-            return False, f"Error marking project as inactive: {str(e)}"
 
     @staticmethod
     def check_and_mark_inactive_projects(active_project_keys):
