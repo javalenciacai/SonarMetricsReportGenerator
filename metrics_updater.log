@@ -1130,3 +1130,15 @@
 2024-10-30 14:55:50,569 - services.metrics_updater - INFO - [20241030_145550_repository_navisafit_AlertManagement] Starting metrics update execution
 2024-10-30 14:55:51,266 - services.metrics_updater - INFO - [20241030_145550_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
 2024-10-30 14:55:52,289 - services.metrics_updater - INFO - [20241030_145550_repository_navisafit_AlertManagement] Successfully updated repository metrics
+2024-10-30 14:56:03,016 - services.metrics_updater - INFO - [20241030_145603_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:56:03,802 - services.metrics_updater - INFO - [20241030_145603_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:56:04,830 - services.metrics_updater - INFO - [20241030_145603_repository_navisafit_AlertManagement] Successfully updated repository metrics
+2024-10-30 14:56:18,872 - services.metrics_updater - INFO - [20241030_145618_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:56:19,579 - services.metrics_updater - INFO - [20241030_145618_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:56:20,569 - services.metrics_updater - INFO - [20241030_145620_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:56:20,598 - services.metrics_updater - INFO - [20241030_145618_repository_navisafit_AlertManagement] Successfully updated repository metrics
+2024-10-30 14:56:21,273 - services.metrics_updater - INFO - [20241030_145620_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:56:22,266 - services.metrics_updater - INFO - [20241030_145620_repository_navisafit_AlertManagement] Successfully updated repository metrics
+2024-10-30 14:56:33,016 - services.metrics_updater - INFO - [20241030_145633_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-10-30 14:56:33,716 - services.metrics_updater - INFO - [20241030_145633_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-10-30 14:56:34,753 - services.metrics_updater - INFO - [20241030_145633_repository_navisafit_AlertManagement] Successfully updated repository metrics

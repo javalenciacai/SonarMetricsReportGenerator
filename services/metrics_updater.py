@@ -58,7 +58,7 @@ def retry_api_call(func, *args, max_retries=3, retry_delay=5):
     return last_response
 
 def update_entity_metrics(entity_type, entity_id):
-    """Update metrics for an entity (project or group) with enhanced logging and verification"""
+    """Update metrics for an entity (project or group) with enhanced error handling"""
     execution_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{entity_type}_{entity_id}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -94,45 +94,64 @@ def update_entity_metrics(entity_type, entity_id):
         if entity_type == 'repository':
             logger.info(f"[{execution_id}] Fetching metrics for repository: {entity_id}")
             try:
-                metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
+                # Get existing project data first
+                project_data = metrics_processor.get_latest_metrics(entity_id)
+                consecutive_failures = project_data.get('consecutive_failures', 0) if project_data else 0
                 
-                if metrics:
-                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                    logger.debug(f"[{execution_id}] Retrieved metrics: {list(metrics_dict.keys())}")
-                    metrics_summary['api_responses'].append({
-                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'metrics_count': len(metrics_dict),
-                        'metrics': metrics_dict
-                    })
+                try:
+                    metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
                     
-                    success = metrics_processor.store_metrics(entity_id, "", metrics_dict)
-                    if success:
-                        metrics_summary['updated_count'] += 1
-                        metrics_summary['status'] = 'success'
-                        logger.info(f"[{execution_id}] Successfully updated repository metrics")
-                        return True, metrics_summary
+                    if metrics:
+                        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                        logger.debug(f"[{execution_id}] Retrieved metrics: {list(metrics_dict.keys())}")
+                        metrics_summary['api_responses'].append({
+                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'metrics_count': len(metrics_dict),
+                            'metrics': metrics_dict
+                        })
+                        
+                        # Reset consecutive failures on successful update
+                        success = metrics_processor.store_metrics(entity_id, "", metrics_dict, reset_failures=True)
+                        if success:
+                            metrics_summary['updated_count'] += 1
+                            metrics_summary['status'] = 'success'
+                            logger.info(f"[{execution_id}] Successfully updated repository metrics")
+                            return True, metrics_summary
+                        else:
+                            error_msg = "Failed to store metrics in database"
+                            logger.error(f"[{execution_id}] {error_msg}")
+                            metrics_summary.update({
+                                'status': 'failed',
+                                'failed_count': 1,
+                                'errors': [error_msg]
+                            })
+                            return False, metrics_summary
                     else:
-                        error_msg = "Failed to store metrics in database"
+                        error_msg = "No metrics data received from API"
                         logger.error(f"[{execution_id}] {error_msg}")
+                        # Increment consecutive failures and check for inactive marking
+                        metrics_processor.increment_consecutive_failures(entity_id)
                         metrics_summary.update({
                             'status': 'failed',
-                            'failed_count': 1,
                             'errors': [error_msg]
                         })
                         return False, metrics_summary
-                else:
-                    error_msg = "No metrics data received from API"
-                    logger.error(f"[{execution_id}] {error_msg}")
-                    metrics_summary.update({
-                        'status': 'failed',
-                        'errors': [error_msg]
-                    })
-                    return False, metrics_summary
+                        
+                except RequestException as e:
+                    if hasattr(e, 'response') and e.response.status_code == 404:
+                        # Project not found in SonarCloud, mark as inactive after verification
+                        metrics_processor.increment_consecutive_failures(entity_id)
+                        if consecutive_failures >= 2:  # Mark inactive after 3 consecutive failures
+                            metrics_processor.mark_project_inactive(entity_id)
+                            logger.warning(f"[{execution_id}] Project marked as inactive after multiple 404 responses")
+                    raise
                     
             except Exception as e:
                 error_msg = f"Error fetching repository metrics: {str(e)}"
                 logger.error(f"[{execution_id}] {error_msg}")
                 logger.debug(f"[{execution_id}] Traceback: {traceback.format_exc()}")
+                # Increment consecutive failures
+                metrics_processor.increment_consecutive_failures(entity_id)
                 metrics_summary.update({
                     'status': 'failed',
                     'errors': [error_msg]
@@ -152,6 +171,7 @@ def update_entity_metrics(entity_type, entity_id):
                     })
                     return False, metrics_summary
                 
+                active_project_keys = []
                 for project in projects:
                     try:
                         metrics = retry_api_call(sonar_api.get_project_metrics, project['repo_key'])
@@ -163,8 +183,9 @@ def update_entity_metrics(entity_type, entity_id):
                                 'metrics': metrics_dict
                             })
                             
-                            if metrics_processor.store_metrics(project['repo_key'], project['name'], metrics_dict):
+                            if metrics_processor.store_metrics(project['repo_key'], project['name'], metrics_dict, reset_failures=True):
                                 metrics_summary['updated_count'] += 1
+                                active_project_keys.append(project['repo_key'])
                             else:
                                 metrics_summary['failed_count'] += 1
                                 error_msg = f"Failed to store metrics for {project['name']}"
@@ -173,6 +194,11 @@ def update_entity_metrics(entity_type, entity_id):
                         metrics_summary['failed_count'] += 1
                         error_msg = f"Error updating {project['name']}: {str(e)}"
                         metrics_summary['errors'].append(error_msg)
+                        metrics_processor.increment_consecutive_failures(project['repo_key'])
+                
+                # Update inactive status for projects not found
+                if active_project_keys:
+                    metrics_processor.check_and_mark_inactive_projects(active_project_keys)
                 
                 metrics_summary['status'] = 'success' if metrics_summary['updated_count'] > 0 else 'failed'
                 return metrics_summary['updated_count'] > 0, metrics_summary

@@ -5,20 +5,26 @@ from database.schema import mark_project_for_deletion, unmark_project_for_deleti
 
 class MetricsProcessor:
     @staticmethod
-    def store_metrics(repo_key, name, metrics):
+    def store_metrics(repo_key, name, metrics, reset_failures=False):
         """Store metrics and track project existence"""
         try:
             # Store repository and update last_seen timestamp
             repo_query = """
-            INSERT INTO repositories (repo_key, name, last_seen, is_active)
-            VALUES (%s, %s, CURRENT_TIMESTAMP, true)
+            INSERT INTO repositories (
+                repo_key, name, last_seen, is_active, consecutive_failures
+            )
+            VALUES (%s, %s, CURRENT_TIMESTAMP, true, %s)
             ON CONFLICT (repo_key) DO UPDATE
             SET name = EXCLUDED.name,
                 last_seen = CURRENT_TIMESTAMP,
-                is_active = true
+                is_active = true,
+                consecutive_failures = CASE 
+                    WHEN %s THEN 0 
+                    ELSE repositories.consecutive_failures 
+                END
             RETURNING id;
             """
-            result = execute_query(repo_query, (repo_key, name))
+            result = execute_query(repo_query, (repo_key, name, 0, reset_failures))
             if not result:
                 raise Exception("Failed to get repository ID")
             repo_id = result[0][0]
@@ -45,6 +51,38 @@ class MetricsProcessor:
             return True
         except Exception as e:
             print(f"Error storing metrics: {str(e)}")
+            return False
+
+    @staticmethod
+    def increment_consecutive_failures(repo_key):
+        """Increment the consecutive failures counter for a repository"""
+        query = """
+        UPDATE repositories 
+        SET consecutive_failures = consecutive_failures + 1
+        WHERE repo_key = %s
+        RETURNING consecutive_failures;
+        """
+        try:
+            result = execute_query(query, (repo_key,))
+            return result[0][0] if result else None
+        except Exception as e:
+            print(f"Error incrementing consecutive failures: {str(e)}")
+            return None
+
+    @staticmethod
+    def mark_project_inactive(repo_key):
+        """Mark a project as inactive"""
+        query = """
+        UPDATE repositories
+        SET is_active = false,
+            last_seen = CURRENT_TIMESTAMP
+        WHERE repo_key = %s;
+        """
+        try:
+            execute_query(query, (repo_key,))
+            return True
+        except Exception as e:
+            print(f"Error marking project inactive: {str(e)}")
             return False
 
     @staticmethod
@@ -83,6 +121,8 @@ class MetricsProcessor:
             m.timestamp::text as timestamp,
             r.last_seen,
             r.is_active,
+            r.consecutive_failures,
+            r.is_marked_for_deletion,
             CURRENT_TIMESTAMP - r.last_seen as inactive_duration
         FROM metrics m
         JOIN repositories r ON r.id = m.repository_id
@@ -94,65 +134,28 @@ class MetricsProcessor:
         return dict(result[0]) if result else None
 
     @staticmethod
-    def get_projects_in_group(group_id):
-        """Get all projects in a specific group"""
+    def check_and_mark_inactive_projects(active_project_keys):
+        """Check and mark projects as inactive if they are not in the active projects list"""
+        if not active_project_keys:
+            return True, "No active projects to compare"
+        
         query = """
-        SELECT 
-            repo_key,
-            name,
-            is_active,
-            last_seen,
-            created_at,
-            CURRENT_TIMESTAMP - last_seen as inactive_duration
-        FROM repositories
-        WHERE group_id = %s
-        ORDER BY name;
+        WITH updated AS (
+            UPDATE repositories
+            SET is_active = false
+            WHERE repo_key NOT IN %s
+                AND is_active = true
+            RETURNING repo_key
+        )
+        SELECT array_agg(repo_key) as marked_inactive
+        FROM updated;
         """
-        result = execute_query(query, (group_id,))
-        return [dict(row) for row in result] if result else []
-
-    @staticmethod
-    def get_group_metrics_summary(group_id):
-        """Get aggregated metrics for a group"""
-        query = """
-        SELECT 
-            SUM(m.bugs) as total_bugs,
-            SUM(m.vulnerabilities) as total_vulnerabilities,
-            SUM(m.code_smells) as total_code_smells,
-            AVG(m.coverage) as avg_coverage,
-            AVG(m.duplicated_lines_density) as avg_duplication,
-            SUM(m.ncloc) as total_ncloc,
-            SUM(m.sqale_index) as total_debt
-        FROM repositories r
-        JOIN metrics m ON m.repository_id = r.id
-        WHERE r.group_id = %s
-        AND m.timestamp = (
-            SELECT MAX(timestamp)
-            FROM metrics
-            WHERE repository_id = r.id
-        );
-        """
-        result = execute_query(query, (group_id,))
-        return dict(result[0]) if result else None
-
-    @staticmethod
-    def get_inactive_projects(days=30):
-        """Get projects that haven't been updated in the specified number of days"""
-        query = """
-        SELECT 
-            repo_key,
-            name,
-            last_seen,
-            created_at,
-            is_marked_for_deletion,
-            is_active,
-            CURRENT_TIMESTAMP - last_seen as inactive_duration
-        FROM repositories
-        WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '%s days'
-        ORDER BY last_seen DESC;
-        """
-        result = execute_query(query, (days,))
-        return [dict(row) for row in result] if result else []
+        try:
+            result = execute_query(query, (tuple(active_project_keys),))
+            marked_inactive = result[0][0] if result and result[0][0] else []
+            return True, f"Marked {len(marked_inactive)} projects as inactive"
+        except Exception as e:
+            return False, f"Error updating inactive projects: {str(e)}"
 
     @staticmethod
     def get_project_status():
@@ -163,6 +166,7 @@ class MetricsProcessor:
             name,
             is_active,
             is_marked_for_deletion,
+            consecutive_failures,
             last_seen,
             created_at,
             group_id,
@@ -179,22 +183,6 @@ class MetricsProcessor:
         """
         result = execute_query(query)
         return [dict(row) for row in result] if result else []
-
-    @staticmethod
-    def check_and_mark_inactive_projects(active_project_keys):
-        """Check and mark projects as inactive if they are not in the active projects list"""
-        query = """
-        UPDATE repositories
-        SET is_active = false
-        WHERE repo_key NOT IN %s
-            AND is_active = true;
-        """
-        try:
-            if active_project_keys:
-                execute_query(query, (tuple(active_project_keys),))
-            return True, "Inactive projects updated"
-        except Exception as e:
-            return False, f"Error updating inactive projects: {str(e)}"
 
     @staticmethod
     def mark_project_for_deletion(repo_key):
