@@ -11,20 +11,56 @@ from components.visualizations import plot_metrics_history, plot_multi_project_c
 from components.policy_display import show_policies, get_policy_acceptance_status
 from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
-from database.schema import initialize_database
+from database.schema import initialize_database, get_update_preferences
 import logging
+from datetime import datetime
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Initialize global services
 scheduler = SchedulerService()
 report_generator = None
 notification_service = None
+
+def register_repository_jobs():
+    """Register update jobs for all repositories with their stored intervals"""
+    try:
+        metrics_processor = MetricsProcessor()
+        all_projects = metrics_processor.get_project_status()
+        registered_count = 0
+        failed_count = 0
+        
+        logger.info(f"[{datetime.now()}] Starting automatic job registration for {len(all_projects)} repositories")
+        
+        for project in all_projects:
+            if project['is_active']:
+                try:
+                    prefs = get_update_preferences('repository', project['repo_key'])
+                    interval = prefs.get('update_interval', 3600)
+                    
+                    logger.debug(f"Registering job for repository: {project['repo_key']} "
+                               f"with interval: {interval}s")
+                    
+                    scheduler.schedule_metrics_update(
+                        update_entity_metrics,
+                        'repository',
+                        project['repo_key'],
+                        interval
+                    )
+                    registered_count += 1
+                    logger.info(f"Successfully registered job for {project['repo_key']}")
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"Failed to register job for {project['repo_key']}: {str(e)}")
+        
+        logger.info(f"Job registration complete: {registered_count} succeeded, {failed_count} failed")
+        return registered_count > 0
+    except Exception as e:
+        logger.error(f"Error during job registration: {str(e)}")
+        return False
 
 def verify_scheduler_status():
     """Verify scheduler status and log active jobs"""
@@ -33,7 +69,11 @@ def verify_scheduler_status():
             active_jobs = scheduler.scheduler.get_jobs()
             logger.info(f"Scheduler is running with {len(active_jobs)} active jobs")
             for job in active_jobs:
-                logger.info(f"Active job: {job.id}, Next run: {job.next_run_time}")
+                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else "Not scheduled"
+                logger.info(f"Active job: {job.id}, Next run: {next_run}")
+                job_status = scheduler.get_job_status(job.id)
+                if job_status:
+                    logger.debug(f"Job status: {job_status}")
             return True
         else:
             logger.error("Scheduler is not running")
@@ -110,7 +150,6 @@ def main():
             initial_sidebar_state="expanded"
         )
 
-        # Initialize session state
         if 'initialized' not in st.session_state:
             st.session_state.initialized = True
             st.session_state.policies_accepted = False
@@ -126,20 +165,22 @@ def main():
         
         global report_generator, notification_service
 
-        # Initialize and verify scheduler
         if not scheduler.scheduler.running:
             logger.info("Starting scheduler service")
             scheduler.start()
             if not verify_scheduler_status():
                 st.error("Failed to initialize scheduler service")
                 return
+                
+            logger.info("Registering update jobs for repositories")
+            if not register_repository_jobs():
+                logger.warning("Failed to register some repository update jobs")
         else:
             logger.info("Scheduler service already running")
             verify_scheduler_status()
 
         sidebar = setup_sidebar()
 
-        # Sidebar navigation with form to prevent unnecessary refreshes
         with sidebar:
             st.markdown("### 📊 Navigation")
             with st.form(key="navigation_form"):
@@ -195,11 +236,9 @@ def main():
         else:
             projects = sonar_api.get_projects()
             
-            # Get all projects including inactive ones
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
 
-            # Build project names dictionary
             for project in projects:
                 project_names[project['key']] = f"✅ {project['name']}"
             
@@ -222,13 +261,11 @@ def main():
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
 
-            # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
             if not show_inactive:
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
                                   if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
-            # Project selection
             selected_project = st.sidebar.selectbox(
                 "Select Project",
                 options=list(filtered_projects.keys()),
@@ -257,7 +294,6 @@ def main():
             elif selected_project:
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
                 
-                # Check if project is inactive
                 is_inactive = '⚠️' in project_names[selected_project] or '🗑️' in project_names[selected_project]
                 
                 if is_inactive:
@@ -296,7 +332,6 @@ def main():
                         display_metric_trends(historical_data)
                         create_download_report(historical_data)
 
-                # Display interval settings for individual project
                 if selected_project != 'all' and not is_inactive:
                     st.sidebar.markdown("---")
                     with st.sidebar:
