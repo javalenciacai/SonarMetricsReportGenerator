@@ -5,6 +5,7 @@ from services.metrics_processor import MetricsProcessor
 from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
+from services.metric_analyzer import MetricAnalyzer
 from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
@@ -15,6 +16,34 @@ from database.schema import initialize_database
 scheduler = SchedulerService()
 report_generator = None
 notification_service = None
+
+def get_project_status_indicator(metrics):
+    """Generate status indicator based on project metrics"""
+    if not metrics:
+        return "⚠️"
+        
+    analyzer = MetricAnalyzer()
+    quality_score = analyzer.calculate_quality_score(metrics)
+    status = analyzer.get_metric_status(metrics)
+    
+    # Get counts for critical issues
+    bugs = int(metrics.get('bugs', 0))
+    vulnerabilities = int(metrics.get('vulnerabilities', 0))
+    
+    # Determine overall status emoji
+    if quality_score >= 80:
+        status_emoji = "🟢"
+    elif quality_score >= 60:
+        status_emoji = "🟡"
+    else:
+        status_emoji = "🔴"
+        
+    # Add issue counts if they exist
+    issue_info = ""
+    if bugs > 0 or vulnerabilities > 0:
+        issue_info = f" [🐛{bugs} ⚠️{vulnerabilities}]"
+        
+    return f"{status_emoji}{issue_info}"
 
 def handle_project_switch():
     """Handle project selection changes without unnecessary refreshes"""
@@ -157,6 +186,7 @@ def main():
             return
 
         sonar_api = SonarCloudAPI(token)
+        metrics_processor = MetricsProcessor()
         is_valid, message = sonar_api.validate_token()
         
         if not is_valid:
@@ -165,7 +195,6 @@ def main():
 
         report_generator = ReportGenerator(sonar_api)
         notification_service = NotificationService(report_generator)
-        metrics_processor = MetricsProcessor()
         
         st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
 
@@ -187,14 +216,30 @@ def main():
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
 
-            # Build project names dictionary
+            # Build project names dictionary with enhanced status indicators
             for project in active_projects:
-                project_names[project['key']] = f"✅ {project['name']}"
+                try:
+                    metrics = sonar_api.get_project_metrics(project['key'])
+                    if metrics:
+                        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                        status_indicator = get_project_status_indicator(metrics_dict)
+                        project_names[project['key']] = f"{status_indicator} {project['name']}"
+                    else:
+                        project_names[project['key']] = f"✅ {project['name']}"
+                except:
+                    project_names[project['key']] = f"✅ {project['name']}"
             
+            # Handle inactive projects
             for project in all_projects_status:
                 if not project['is_active']:
                     deletion_mark = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
-                    project_names[project['repo_key']] = f"{deletion_mark} {project['name']} (Inactive)"
+                    # Get latest metrics for inactive projects
+                    latest_metrics = project.get('latest_metrics', {})
+                    if latest_metrics:
+                        status_indicator = get_project_status_indicator(latest_metrics)
+                        project_names[project['repo_key']] = f"{deletion_mark} {status_indicator} {project['name']} (Inactive)"
+                    else:
+                        project_names[project['repo_key']] = f"{deletion_mark} {project['name']} (Inactive)"
             
             project_names['all'] = "📊 All Projects"
 
@@ -209,6 +254,7 @@ def main():
                     
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
+                        st.rerun()
 
             # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
@@ -216,7 +262,7 @@ def main():
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
                                   if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
-            # Project selection
+            # Project selection with enhanced status indicators
             selected_project = st.sidebar.selectbox(
                 "Select Project",
                 options=list(filtered_projects.keys()),
@@ -246,7 +292,7 @@ def main():
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
                 
                 # Check if project is inactive
-                is_inactive = '⚠️' in project_names[selected_project] or '🗑️' in project_names[selected_project]
+                is_inactive = '⚠️' in project_names[selected_project] or '🔴' in project_names[selected_project]
                 
                 if is_inactive:
                     handle_inactive_project(selected_project, metrics_processor)
@@ -274,8 +320,8 @@ def main():
                 if metrics:
                     metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                     metrics_processor.store_metrics(selected_project, 
-                                                 project_names[selected_project].split(" ")[1], 
-                                                 metrics_dict)
+                                               project_names[selected_project].split(" ")[1], 
+                                               metrics_dict)
                     display_current_metrics(metrics_dict)
                     
                     historical_data = metrics_processor.get_historical_data(selected_project)
