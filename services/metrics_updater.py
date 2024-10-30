@@ -3,7 +3,7 @@ import logging.handlers
 import os
 from services.sonarcloud import SonarCloudAPI
 from services.metrics_processor import MetricsProcessor
-from datetime import datetime
+from datetime import datetime, timezone
 import traceback
 import time
 from requests.exceptions import RequestException
@@ -63,8 +63,9 @@ def retry_api_call(func, *args, max_retries=3, retry_delay=5):
 
 def update_entity_metrics(entity_type, entity_id):
     """Update metrics for an entity (project or group) with enhanced error handling"""
-    execution_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{entity_type}_{entity_id}"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    utc_now = datetime.now(timezone.utc)
+    execution_id = f"{utc_now.strftime('%Y%m%d_%H%M%S')}_{entity_type}_{entity_id}"
+    timestamp = utc_now.strftime("%Y-%m-%d %H:%M:%S")
     
     logger.info(f"[{execution_id}] Starting metrics update execution")
     logger.debug(f"[{execution_id}] Update details - Type: {entity_type}, ID: {entity_id}")
