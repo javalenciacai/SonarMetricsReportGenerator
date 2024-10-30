@@ -4338,3 +4338,93 @@
 2024-10-30 19:33:47,914 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
 2024-10-30 19:33:47,915 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
 2024-10-30 19:33:47,915 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:21:43,293 - services.metrics_updater - INFO - [20241030_202143_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:21:43,295 - services.metrics_updater - INFO - [20241030_202143_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:21:43,605 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:21:43,605 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:21:43,606 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:21:50,789 - services.metrics_updater - INFO - [20241030_202150_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:21:50,789 - services.metrics_updater - INFO - [20241030_202150_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:21:51,110 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:21:51,110 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:21:51,114 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:21:56,373 - services.metrics_updater - INFO - [20241030_202156_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:21:56,374 - services.metrics_updater - INFO - [20241030_202156_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:21:56,708 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:21:56,711 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:21:56,711 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:26:43,293 - services.metrics_updater - INFO - [20241030_202643_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:26:43,294 - services.metrics_updater - INFO - [20241030_202643_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:26:43,599 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:26:43,600 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:26:43,600 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:26:50,788 - services.metrics_updater - INFO - [20241030_202650_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:26:50,788 - services.metrics_updater - INFO - [20241030_202650_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:26:51,105 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:26:51,105 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:26:51,106 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:26:56,373 - services.metrics_updater - INFO - [20241030_202656_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:26:56,373 - services.metrics_updater - INFO - [20241030_202656_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:26:56,684 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:26:56,685 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:26:56,686 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:31:43,293 - services.metrics_updater - INFO - [20241030_203143_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:31:43,294 - services.metrics_updater - INFO - [20241030_203143_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:31:43,601 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:31:43,601 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:31:43,601 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:31:50,788 - services.metrics_updater - INFO - [20241030_203150_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:31:50,789 - services.metrics_updater - INFO - [20241030_203150_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:31:51,095 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:31:51,095 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:31:51,095 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:31:56,373 - services.metrics_updater - INFO - [20241030_203156_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:31:56,373 - services.metrics_updater - INFO - [20241030_203156_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:31:56,670 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:31:56,671 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:31:56,671 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:34:27,329 - services.metrics_updater - INFO - [20241030_203427_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:34:27,331 - services.metrics_updater - INFO - [20241030_203427_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:34:27,640 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:34:27,641 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:34:27,641 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:36:43,293 - services.metrics_updater - INFO - [20241030_203643_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:36:43,294 - services.metrics_updater - INFO - [20241030_203643_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:36:43,610 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:36:43,610 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:36:43,610 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:36:50,788 - services.metrics_updater - INFO - [20241030_203650_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:36:50,789 - services.metrics_updater - INFO - [20241030_203650_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:36:51,100 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:36:51,101 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:36:51,101 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:36:56,373 - services.metrics_updater - INFO - [20241030_203656_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:36:56,373 - services.metrics_updater - INFO - [20241030_203656_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:36:56,687 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:36:56,687 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:36:56,687 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:39:27,329 - services.metrics_updater - INFO - [20241030_203927_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:39:27,330 - services.metrics_updater - INFO - [20241030_203927_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:39:27,642 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:39:27,643 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:39:27,643 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:41:43,293 - services.metrics_updater - INFO - [20241030_204143_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:41:43,295 - services.metrics_updater - INFO - [20241030_204143_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:41:43,600 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:41:43,600 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:41:43,600 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:41:50,788 - services.metrics_updater - INFO - [20241030_204150_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:41:50,789 - services.metrics_updater - INFO - [20241030_204150_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:41:51,097 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:41:51,097 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:41:51,097 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:41:56,373 - services.metrics_updater - INFO - [20241030_204156_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:41:56,373 - services.metrics_updater - INFO - [20241030_204156_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:41:56,679 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:41:56,679 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:41:56,679 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-10-30 20:44:27,329 - services.metrics_updater - INFO - [20241030_204427_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 20:44:27,330 - services.metrics_updater - INFO - [20241030_204427_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 20:44:27,645 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 20:44:27,645 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 20:44:27,646 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
