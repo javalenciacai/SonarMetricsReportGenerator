@@ -7,6 +7,7 @@ from datetime import datetime
 import traceback
 import time
 from requests.exceptions import RequestException
+import json
 
 # Configure logging with file handler to avoid Streamlit context
 logging.basicConfig(
@@ -15,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Add file handler to avoid Streamlit context dependency
+# Add file handler for persistent logging
 file_handler = logging.handlers.RotatingFileHandler(
     'metrics_updater.log',
     maxBytes=1024*1024,
@@ -24,31 +25,37 @@ file_handler = logging.handlers.RotatingFileHandler(
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_handler)
 
-def validate_sonarcloud_token(token):
-    """Validate SonarCloud token before making API calls"""
-    try:
-        api = SonarCloudAPI(token)
-        valid, message = api.validate_token()
-        if not valid:
-            logger.error(f"SonarCloud token validation failed: {message}")
-            return False, message
-        return True, "Token validated successfully"
-    except Exception as e:
-        logger.error(f"Error validating SonarCloud token: {str(e)}")
-        return False, str(e)
-
 def retry_api_call(func, *args, max_retries=3, retry_delay=5):
-    """Retry API calls with exponential backoff"""
+    """Retry API calls with exponential backoff and detailed logging"""
+    last_error = None
+    last_response = None
+    
     for attempt in range(max_retries):
         try:
-            return func(*args)
+            response = func(*args)
+            if response:
+                logger.debug(f"API call successful on attempt {attempt + 1}")
+                logger.debug(f"Response data: {json.dumps(response, indent=2)}")
+                return response
+            else:
+                logger.warning(f"API call returned empty response on attempt {attempt + 1}")
+                last_response = response
         except RequestException as e:
+            last_error = e
             if attempt == max_retries - 1:
+                logger.error(f"API call failed after {max_retries} attempts: {str(e)}")
+                if hasattr(e, 'response'):
+                    logger.error(f"Last error response: {e.response.text}")
                 raise
+            
             wait_time = retry_delay * (2 ** attempt)
-            logger.warning(f"API call failed, retrying in {wait_time} seconds... Error: {str(e)}")
+            logger.warning(f"API call failed on attempt {attempt + 1}, "
+                         f"retrying in {wait_time} seconds... Error: {str(e)}")
             time.sleep(wait_time)
-    return None
+    
+    if last_error:
+        raise last_error
+    return last_response
 
 def update_entity_metrics(entity_type, entity_id):
     """Update metrics for an entity (project or group) with enhanced logging and verification"""
@@ -64,7 +71,8 @@ def update_entity_metrics(entity_type, entity_id):
         'updated_count': 0,
         'failed_count': 0,
         'errors': [],
-        'api_responses': []
+        'api_responses': [],
+        'execution_id': execution_id
     }
     
     try:
@@ -73,21 +81,19 @@ def update_entity_metrics(entity_type, entity_id):
             error_msg = "SonarCloud token not found in environment variables"
             logger.error(f"[{execution_id}] {error_msg}")
             metrics_summary.update({'status': 'failed', 'errors': [error_msg]})
-            return False
-
-        # Validate token before proceeding
-        valid, message = validate_sonarcloud_token(sonar_token)
+            return False, metrics_summary
+        
+        sonar_api = SonarCloudAPI(sonar_token)
+        valid, message = sonar_api.validate_token()
         if not valid:
             metrics_summary.update({'status': 'failed', 'errors': [message]})
-            return False
-
-        sonar_api = SonarCloudAPI(sonar_token)
+            return False, metrics_summary
+        
         metrics_processor = MetricsProcessor()
         
         if entity_type == 'repository':
             logger.info(f"[{execution_id}] Fetching metrics for repository: {entity_id}")
             try:
-                # Retry API call with exponential backoff
                 metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
                 
                 if metrics:
@@ -96,32 +102,42 @@ def update_entity_metrics(entity_type, entity_id):
                     metrics_summary['api_responses'].append({
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'metrics_count': len(metrics_dict),
-                        'metrics_keys': list(metrics_dict.keys())
+                        'metrics': metrics_dict
                     })
                     
                     success = metrics_processor.store_metrics(entity_id, "", metrics_dict)
                     if success:
                         metrics_summary['updated_count'] += 1
+                        metrics_summary['status'] = 'success'
                         logger.info(f"[{execution_id}] Successfully updated repository metrics")
-                        logger.debug(f"[{execution_id}] Metrics values: {metrics_dict}")
+                        return True, metrics_summary
                     else:
-                        metrics_summary['failed_count'] += 1
                         error_msg = "Failed to store metrics in database"
                         logger.error(f"[{execution_id}] {error_msg}")
-                        metrics_summary['errors'].append(error_msg)
-                        return False
+                        metrics_summary.update({
+                            'status': 'failed',
+                            'failed_count': 1,
+                            'errors': [error_msg]
+                        })
+                        return False, metrics_summary
                 else:
-                    error_msg = "No metrics data received from SonarCloud API"
-                    logger.warning(f"[{execution_id}] {error_msg}")
-                    metrics_summary['errors'].append(error_msg)
-                    return False
+                    error_msg = "No metrics data received from API"
+                    logger.error(f"[{execution_id}] {error_msg}")
+                    metrics_summary.update({
+                        'status': 'failed',
+                        'errors': [error_msg]
+                    })
+                    return False, metrics_summary
                     
             except Exception as e:
                 error_msg = f"Error fetching repository metrics: {str(e)}"
                 logger.error(f"[{execution_id}] {error_msg}")
                 logger.debug(f"[{execution_id}] Traceback: {traceback.format_exc()}")
-                metrics_summary.update({'status': 'failed', 'errors': [error_msg]})
-                return False
+                metrics_summary.update({
+                    'status': 'failed',
+                    'errors': [error_msg]
+                })
+                return False, metrics_summary
                 
         elif entity_type == 'group':
             logger.info(f"[{execution_id}] Updating metrics for group: {entity_id}")
@@ -130,13 +146,13 @@ def update_entity_metrics(entity_type, entity_id):
                 if not projects:
                     error_msg = f"No projects found in group {entity_id}"
                     logger.warning(f"[{execution_id}] {error_msg}")
-                    metrics_summary['errors'].append(error_msg)
-                    return False
-                
-                logger.info(f"[{execution_id}] Found {len(projects)} projects in group")
+                    metrics_summary.update({
+                        'status': 'failed',
+                        'errors': [error_msg]
+                    })
+                    return False, metrics_summary
                 
                 for project in projects:
-                    logger.debug(f"[{execution_id}] Processing project: {project['name']} ({project['repo_key']})")
                     try:
                         metrics = retry_api_call(sonar_api.get_project_metrics, project['repo_key'])
                         if metrics:
@@ -144,53 +160,38 @@ def update_entity_metrics(entity_type, entity_id):
                             metrics_summary['api_responses'].append({
                                 'project': project['name'],
                                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                'metrics_count': len(metrics_dict)
+                                'metrics': metrics_dict
                             })
                             
                             if metrics_processor.store_metrics(project['repo_key'], project['name'], metrics_dict):
                                 metrics_summary['updated_count'] += 1
-                                logger.debug(f"[{execution_id}] Successfully updated metrics for {project['name']}")
                             else:
                                 metrics_summary['failed_count'] += 1
                                 error_msg = f"Failed to store metrics for {project['name']}"
-                                logger.error(f"[{execution_id}] {error_msg}")
                                 metrics_summary['errors'].append(error_msg)
                     except Exception as e:
                         metrics_summary['failed_count'] += 1
                         error_msg = f"Error updating {project['name']}: {str(e)}"
-                        logger.error(f"[{execution_id}] {error_msg}")
                         metrics_summary['errors'].append(error_msg)
                 
-                logger.info(f"[{execution_id}] Group update summary: "
-                        f"Updated {metrics_summary['updated_count']}/{len(projects)} projects, "
-                        f"Failed {metrics_summary['failed_count']} projects")
-                
-                return metrics_summary['updated_count'] > 0
+                metrics_summary['status'] = 'success' if metrics_summary['updated_count'] > 0 else 'failed'
+                return metrics_summary['updated_count'] > 0, metrics_summary
                 
             except Exception as e:
                 error_msg = f"Error updating group: {str(e)}"
                 logger.error(f"[{execution_id}] {error_msg}")
-                logger.debug(f"[{execution_id}] Traceback: {traceback.format_exc()}")
-                metrics_summary.update({'status': 'failed', 'errors': [error_msg]})
-                return False
-        
-        metrics_summary['status'] = 'success'
-        logger.info(f"[{execution_id}] Metrics update completed successfully")
-        return True
-        
+                metrics_summary.update({
+                    'status': 'failed',
+                    'errors': [error_msg]
+                })
+                return False, metrics_summary
+    
     except Exception as e:
         error_msg = f"Error in metrics update execution: {str(e)}"
         logger.error(f"[{execution_id}] {error_msg}")
         logger.debug(f"[{execution_id}] Traceback: {traceback.format_exc()}")
-        metrics_summary.update({'status': 'failed', 'errors': [error_msg]})
-        return False
-    
-    finally:
-        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        metrics_summary['end_time'] = end_time
-        logger.info(f"[{execution_id}] Execution completed at {end_time}")
-        logger.info(f"[{execution_id}] Final status: {metrics_summary['status']}")
-        if metrics_summary['errors']:
-            logger.info(f"[{execution_id}] Errors encountered: {len(metrics_summary['errors'])}")
-            for error in metrics_summary['errors']:
-                logger.debug(f"[{execution_id}] Error details: {error}")
+        metrics_summary.update({
+            'status': 'failed',
+            'errors': [error_msg]
+        })
+        return False, metrics_summary
