@@ -55,6 +55,47 @@ def update_entity_metrics(entity_type, entity_id):
     except Exception as e:
         print(f"Error updating metrics for {entity_type} {entity_id}: {str(e)}")
 
+def handle_inactive_project(project_key, metrics_processor):
+    """Handle actions for inactive projects"""
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        project_data = metrics_processor.get_latest_metrics(project_key)
+        if project_data:
+            inactive_duration = project_data.get('inactive_duration')
+            last_seen = project_data.get('last_seen')
+            st.warning(f"""
+                ⚠️ This project appears to be inactive.
+                - Last seen: {last_seen}
+                - Inactive for: {inactive_duration}
+            """)
+    
+    with col2:
+        is_marked = project_data and project_data.get('is_marked_for_deletion', False)
+        if is_marked:
+            if st.button("🔄 Unmark for Deletion"):
+                success, msg = metrics_processor.unmark_project_for_deletion(project_key)
+                if success:
+                    st.success("✅ Project unmarked for deletion")
+                    st.rerun()
+                else:
+                    st.error(f"Failed to unmark project: {msg}")
+            
+            if st.button("🗑️ Permanently Delete", type="primary"):
+                success, msg = metrics_processor.delete_project_data(project_key)
+                if success:
+                    st.success("✅ Project deleted successfully")
+                    st.rerun()
+                else:
+                    st.error(f"Failed to delete project: {msg}")
+        else:
+            if st.button("⚠️ Mark for Deletion"):
+                success, msg = metrics_processor.mark_project_for_deletion(project_key)
+                if success:
+                    st.success("✅ Project marked for deletion")
+                    st.rerun()
+                else:
+                    st.error(f"Failed to mark project: {msg}")
+
 def main():
     try:
         st.set_page_config(
@@ -141,10 +182,22 @@ def main():
         else:
             # Individual Projects View with optimized refreshes
             active_projects = sonar_api.get_projects()
-            if not active_projects:
-                st.warning("No active projects found in the organization")
-                return
             
+            # Get all projects including inactive ones
+            all_projects_status = metrics_processor.get_project_status()
+            project_names = {}
+
+            # Build project names dictionary
+            for project in active_projects:
+                project_names[project['key']] = f"✅ {project['name']}"
+            
+            for project in all_projects_status:
+                if not project['is_active']:
+                    deletion_mark = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
+                    project_names[project['repo_key']] = f"{deletion_mark} {project['name']} (Inactive)"
+            
+            project_names['all'] = "📊 All Projects"
+
             with st.sidebar:
                 st.markdown("### 🔍 Project Selection")
                 with st.form(key="project_filter_form"):
@@ -157,25 +210,11 @@ def main():
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
 
-            # Project selection and display
-            all_projects_status = metrics_processor.get_project_status()
-            project_names = {}
-
-            # Build project names dictionary
-            for project in active_projects:
-                project_names[project['key']] = f"✅ {project['name']}"
-            
-            for project in all_projects_status:
-                if not project['is_active']:
-                    project_names[project['repo_key']] = f"⚠️ {project['name']} (Inactive)"
-            
-            project_names['all'] = "📊 All Projects"
-
             # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
             if not show_inactive:
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
-                                  if '⚠️' not in v or k == 'all'}
+                                  if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
             # Project selection
             selected_project = st.sidebar.selectbox(
@@ -205,10 +244,38 @@ def main():
             
             elif selected_project:
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
-                metrics = sonar_api.get_project_metrics(selected_project)
+                
+                # Check if project is inactive
+                is_inactive = '⚠️' in project_names[selected_project] or '🗑️' in project_names[selected_project]
+                
+                if is_inactive:
+                    handle_inactive_project(selected_project, metrics_processor)
+                
+                metrics = None
+                try:
+                    metrics = sonar_api.get_project_metrics(selected_project)
+                except Exception as e:
+                    if is_inactive:
+                        st.info("Using historical data for inactive project")
+                        project_data = metrics_processor.get_latest_metrics(selected_project)
+                        if project_data:
+                            metrics_dict = {k: float(v) for k, v in project_data.items() 
+                                         if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
+                            display_current_metrics(metrics_dict)
+                            
+                            historical_data = metrics_processor.get_historical_data(selected_project)
+                            if historical_data:
+                                plot_metrics_history(historical_data)
+                                display_metric_trends(historical_data)
+                                create_download_report(historical_data)
+                    else:
+                        st.error(f"Failed to fetch metrics: {str(e)}")
                 
                 if metrics:
                     metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                    metrics_processor.store_metrics(selected_project, 
+                                                 project_names[selected_project].split(" ")[1], 
+                                                 metrics_dict)
                     display_current_metrics(metrics_dict)
                     
                     historical_data = metrics_processor.get_historical_data(selected_project)
@@ -218,7 +285,7 @@ def main():
                         create_download_report(historical_data)
 
                 # Display interval settings for individual project
-                if selected_project != 'all':
+                if selected_project != 'all' and not is_inactive:
                     st.sidebar.markdown("---")
                     with st.sidebar:
                         display_interval_settings(
