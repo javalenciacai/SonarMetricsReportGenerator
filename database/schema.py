@@ -411,3 +411,58 @@ def get_projects_in_group(group_id):
     except Exception as e:
         print(f"Error getting projects in group: {str(e)}")
         return []
+
+def assign_project_to_group(repo_key, group_id):
+    """Assign a project to a group"""
+    query = '''
+    UPDATE repositories 
+    SET group_id = %s,
+        last_seen = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+    WHERE repo_key = %s 
+    RETURNING id;
+    '''
+    try:
+        result = execute_query(query, (group_id, repo_key))
+        return bool(result)
+    except Exception as e:
+        print(f"Error assigning project to group: {str(e)}")
+        return False
+
+def remove_project_from_group(repo_key):
+    """Remove a project from its group"""
+    query = """
+    UPDATE repositories 
+    SET group_id = NULL,
+        last_seen = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+    WHERE repo_key = %s 
+    RETURNING id;
+    """
+    try:
+        result = execute_query(query, (repo_key,))
+        return bool(result)
+    except Exception as e:
+        print(f"Error removing project from group: {str(e)}")
+        return False
+
+def delete_project_group(group_id):
+    """Delete a project group and unassign all projects"""
+    try:
+        # First unassign all projects from the group
+        unassign_query = """
+        UPDATE repositories 
+        SET group_id = NULL,
+            last_seen = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+        WHERE group_id = %s;
+        """
+        execute_query(unassign_query, (group_id,))
+
+        # Then delete the group
+        delete_query = """
+        DELETE FROM project_groups 
+        WHERE id = %s 
+        RETURNING id;
+        """
+        result = execute_query(delete_query, (group_id,))
+        return bool(result), "Group deleted successfully"
+    except Exception as e:
+        return False, f"Error deleting group: {str(e)}"
