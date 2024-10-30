@@ -35,13 +35,17 @@ def retry_api_call(func, *args, max_retries=3, retry_delay=5):
             response = func(*args)
             if response:
                 logger.debug(f"API call successful on attempt {attempt + 1}")
-                logger.debug(f"Response data: {json.dumps(response, indent=2)}")
                 return response
             else:
                 logger.warning(f"API call returned empty response on attempt {attempt + 1}")
                 last_response = response
         except RequestException as e:
             last_error = e
+            if hasattr(e, 'response') and e.response.status_code == 404:
+                # Don't retry on 404 responses
+                logger.warning(f"Received 404 response, not retrying")
+                raise
+            
             if attempt == max_retries - 1:
                 logger.error(f"API call failed after {max_retries} attempts: {str(e)}")
                 if hasattr(e, 'response'):
@@ -84,11 +88,6 @@ def update_entity_metrics(entity_type, entity_id):
             return False, metrics_summary
         
         sonar_api = SonarCloudAPI(sonar_token)
-        valid, message = sonar_api.validate_token()
-        if not valid:
-            metrics_summary.update({'status': 'failed', 'errors': [message]})
-            return False, metrics_summary
-        
         metrics_processor = MetricsProcessor()
         
         if entity_type == 'repository':
@@ -96,20 +95,12 @@ def update_entity_metrics(entity_type, entity_id):
             try:
                 # Get existing project data first
                 project_data = metrics_processor.get_latest_metrics(entity_id)
-                consecutive_failures = project_data.get('consecutive_failures', 0) if project_data else 0
                 
                 try:
                     metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
-                    
                     if metrics:
-                        # Project exists and returned metrics
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                         logger.debug(f"[{execution_id}] Retrieved metrics: {list(metrics_dict.keys())}")
-                        metrics_summary['api_responses'].append({
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'metrics_count': len(metrics_dict),
-                            'metrics': metrics_dict
-                        })
                         
                         # Reset consecutive failures on successful update
                         success = metrics_processor.store_metrics(entity_id, "", metrics_dict, reset_failures=True)
@@ -123,81 +114,57 @@ def update_entity_metrics(entity_type, entity_id):
                             logger.error(f"[{execution_id}] {error_msg}")
                             metrics_summary.update({
                                 'status': 'failed',
-                                'failed_count': 1,
                                 'errors': [error_msg]
                             })
                             return False, metrics_summary
-                    else:
-                        error_msg = "No metrics data received from API"
-                        logger.error(f"[{execution_id}] {error_msg}")
-                        # Increment consecutive failures and check for inactive marking
-                        new_failures = metrics_processor.increment_consecutive_failures(entity_id)
-                        logger.warning(f"[{execution_id}] Consecutive failures increased to {new_failures}")
-                        
-                        if new_failures and new_failures >= 3:
-                            metrics_processor.mark_project_inactive(entity_id)
-                            logger.warning(f"[{execution_id}] Project marked as inactive after {new_failures} consecutive failures")
-                        
-                        metrics_summary.update({
-                            'status': 'failed',
-                            'errors': [error_msg]
-                        })
-                        return False, metrics_summary
-                        
+                    
                 except RequestException as e:
                     if hasattr(e, 'response') and e.response.status_code == 404:
-                        # Project not found in SonarCloud - explicit 404 handling
+                        # Project not found in SonarCloud - mark as inactive immediately
                         error_msg = f"Project '{entity_id}' not found in SonarCloud (404 response)"
                         logger.error(f"[{execution_id}] {error_msg}")
                         
-                        # Get current failure count before incrementing
-                        current_failures = project_data.get('consecutive_failures', 0) if project_data else 0
-                        logger.debug(f"[{execution_id}] Current consecutive failures: {current_failures}")
-                        
-                        # Increment consecutive failures and check for inactive marking
-                        new_failures = metrics_processor.increment_consecutive_failures(entity_id)
-                        logger.warning(f"[{execution_id}] Consecutive failures increased to {new_failures} after 404 response")
-                        
-                        # Mark project as inactive after 3 consecutive failures
-                        if new_failures and new_failures >= 3:
-                            success = metrics_processor.mark_project_inactive(entity_id)
-                            if success:
-                                logger.warning(f"[{execution_id}] Project marked as inactive after {new_failures} consecutive 404 responses")
-                            else:
-                                logger.error(f"[{execution_id}] Failed to mark project as inactive")
+                        # Mark project as inactive immediately
+                        success = metrics_processor.mark_project_inactive(entity_id)
+                        if success:
+                            logger.warning(f"[{execution_id}] Project marked as inactive due to 404 response")
+                        else:
+                            logger.error(f"[{execution_id}] Failed to mark project as inactive")
                         
                         metrics_summary.update({
                             'status': 'failed',
                             'errors': [error_msg],
-                            'current_failures': current_failures,
-                            'new_failures': new_failures
+                            'project_status': 'inactive',
+                            'last_known_data': project_data
                         })
                         return False, metrics_summary
-                    raise
+                    
+                    # Handle other API errors
+                    error_msg = f"API error: {str(e)}"
+                    logger.error(f"[{execution_id}] {error_msg}")
+                    new_failures = metrics_processor.increment_consecutive_failures(entity_id)
+                    
+                    if new_failures and new_failures >= 3:
+                        metrics_processor.mark_project_inactive(entity_id)
+                        logger.warning(f"[{execution_id}] Project marked as inactive after {new_failures} consecutive failures")
+                    
+                    metrics_summary.update({
+                        'status': 'failed',
+                        'errors': [error_msg]
+                    })
+                    return False, metrics_summary
                     
             except Exception as e:
-                error_msg = f"Error fetching repository metrics: {str(e)}"
+                error_msg = f"Error in repository update: {str(e)}"
                 logger.error(f"[{execution_id}] {error_msg}")
                 logger.debug(f"[{execution_id}] Traceback: {traceback.format_exc()}")
-                
-                # Increment consecutive failures
-                new_failures = metrics_processor.increment_consecutive_failures(entity_id)
-                logger.warning(f"[{execution_id}] Consecutive failures increased to {new_failures}")
-                
-                # Mark project as inactive if threshold reached
-                if new_failures and new_failures >= 3:
-                    success = metrics_processor.mark_project_inactive(entity_id)
-                    if success:
-                        logger.warning(f"[{execution_id}] Project marked as inactive after {new_failures} consecutive failures")
-                    else:
-                        logger.error(f"[{execution_id}] Failed to mark project as inactive")
                 
                 metrics_summary.update({
                     'status': 'failed',
                     'errors': [error_msg]
                 })
                 return False, metrics_summary
-                
+        
         elif entity_type == 'group':
             logger.info(f"[{execution_id}] Updating metrics for group: {entity_id}")
             try:
@@ -212,44 +179,37 @@ def update_entity_metrics(entity_type, entity_id):
                     return False, metrics_summary
                 
                 active_project_keys = []
+                inactive_projects = []
+                
                 for project in projects:
                     try:
                         metrics = retry_api_call(sonar_api.get_project_metrics, project['repo_key'])
                         if metrics:
                             metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                            metrics_summary['api_responses'].append({
-                                'project': project['name'],
-                                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                'metrics': metrics_dict
-                            })
-                            
                             if metrics_processor.store_metrics(project['repo_key'], project['name'], metrics_dict, reset_failures=True):
                                 metrics_summary['updated_count'] += 1
                                 active_project_keys.append(project['repo_key'])
                             else:
                                 metrics_summary['failed_count'] += 1
-                                error_msg = f"Failed to store metrics for {project['name']}"
-                                metrics_summary['errors'].append(error_msg)
+                                
                     except RequestException as e:
-                        metrics_summary['failed_count'] += 1
                         if hasattr(e, 'response') and e.response.status_code == 404:
-                            error_msg = f"Project {project['name']} not found in SonarCloud"
-                            logger.error(f"[{execution_id}] {error_msg}")
-                            new_failures = metrics_processor.increment_consecutive_failures(project['repo_key'])
-                            if new_failures and new_failures >= 3:
-                                metrics_processor.mark_project_inactive(project['repo_key'])
+                            # Mark project as inactive immediately
+                            metrics_processor.mark_project_inactive(project['repo_key'])
+                            inactive_projects.append(project['repo_key'])
+                            logger.warning(f"[{execution_id}] Project {project['repo_key']} marked as inactive due to 404")
                         else:
+                            metrics_summary['failed_count'] += 1
                             error_msg = f"Error updating {project['name']}: {str(e)}"
                             metrics_summary['errors'].append(error_msg)
-                            metrics_processor.increment_consecutive_failures(project['repo_key'])
                 
-                # Update inactive status for projects not found
                 if active_project_keys:
-                    success, msg = metrics_processor.check_and_mark_inactive_projects(active_project_keys)
-                    if not success:
-                        logger.error(f"[{execution_id}] {msg}")
+                    metrics_processor.check_and_mark_inactive_projects(active_project_keys)
                 
-                metrics_summary['status'] = 'success' if metrics_summary['updated_count'] > 0 else 'failed'
+                metrics_summary.update({
+                    'status': 'success' if metrics_summary['updated_count'] > 0 else 'failed',
+                    'inactive_projects': inactive_projects
+                })
                 return metrics_summary['updated_count'] > 0, metrics_summary
                 
             except Exception as e:
