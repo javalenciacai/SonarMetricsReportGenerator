@@ -18,14 +18,24 @@ class SchedulerService:
         self.logger.info("Scheduler service initialized")
 
     def _handle_job_event(self, event):
-        """Handle job execution events"""
+        """Handle job execution events with enhanced logging"""
+        job_id = event.job_id
+        job_info = self.job_registry.get(job_id, {})
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         if event.exception:
-            self.logger.error(f"Job {event.job_id} failed: {str(event.exception)}")
-            self.logger.error(f"Job details: {event.job}")
-            if event.job_id in self.job_registry:
-                job_info = self.job_registry[event.job_id]
-                self.logger.info(f"Attempting to reschedule failed job: {event.job_id}")
+            self.logger.error(f"[{timestamp}] Job {job_id} failed: {str(event.exception)}")
+            self.logger.error(f"Job details: Type: {job_info.get('type')}, "
+                          f"Entity: {job_info.get('entity_type')} {job_info.get('entity_id')}")
+
+            if job_id in self.job_registry:
+                self.logger.info(f"[{timestamp}] Attempting to reschedule failed job: {job_id}")
                 try:
+                    # Update job status in registry
+                    self.job_registry[job_id]['last_status'] = 'failed'
+                    self.job_registry[job_id]['last_error'] = str(event.exception)
+                    self.job_registry[job_id]['last_run'] = timestamp
+
                     # Retry scheduling with the same parameters
                     self.schedule_metrics_update(
                         event.job.func,
@@ -34,22 +44,33 @@ class SchedulerService:
                         job_info['interval']
                     )
                 except Exception as e:
-                    self.logger.error(f"Failed to reschedule job {event.job_id}: {str(e)}")
+                    self.logger.error(f"[{timestamp}] Failed to reschedule job {job_id}: {str(e)}")
+                    self.job_registry[job_id]['reschedule_error'] = str(e)
         else:
-            self.logger.info(f"Job {event.job_id} executed successfully at {datetime.now()}")
-            if event.job_id in self.job_registry:
-                job_info = self.job_registry[event.job_id]
-                self.logger.debug(f"Job details - Type: {job_info['type']}, "
-                               f"Entity: {job_info['entity_type']} {job_info['entity_id']}, "
-                               f"Interval: {job_info['interval']}s")
+            self.logger.info(f"[{timestamp}] Job {job_id} executed successfully")
+            self.logger.debug(f"Job details - Type: {job_info.get('type', 'unknown')}, "
+                          f"Entity: {job_info.get('entity_type', 'unknown')} {job_info.get('entity_id', 'unknown')}, "
+                          f"Interval: {job_info.get('interval', 'unknown')}s")
+
+            if job_id in self.job_registry:
+                # Update job status in registry
+                self.job_registry[job_id].update({
+                    'last_status': 'success',
+                    'last_run': timestamp,
+                    'last_error': None,
+                    'successful_runs': self.job_registry[job_id].get('successful_runs', 0) + 1
+                })
 
     def start(self):
-        """Start the scheduler with error handling"""
+        """Start the scheduler with enhanced error handling and logging"""
         try:
             if not self.scheduler.running:
                 self.scheduler.start()
                 self.logger.info("Scheduler started successfully")
-                self.logger.debug(f"Active jobs: {len(self.scheduler.get_jobs())}")
+                active_jobs = self.scheduler.get_jobs()
+                self.logger.debug(f"Active jobs: {len(active_jobs)}")
+                for job in active_jobs:
+                    self.logger.debug(f"Active job: {job.id}, Next run: {job.next_run_time}")
                 return True
             return True
         except Exception as e:
@@ -57,18 +78,21 @@ class SchedulerService:
             return False
 
     def schedule_metrics_update(self, job_func, entity_type, entity_id, interval_seconds):
-        """Schedule a metrics update job with improved error handling and logging"""
+        """Schedule a metrics update job with enhanced logging and status tracking"""
         job_id = f"metrics_update_{entity_type}_{entity_id}"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:
             # Remove existing job if it exists
             if job_id in self.job_registry:
-                self.logger.debug(f"Removing existing job: {job_id}")
+                self.logger.debug(f"[{timestamp}] Removing existing job: {job_id}")
                 self.scheduler.remove_job(job_id)
-                self.logger.info(f"Removed existing job: {job_id}")
+                self.logger.info(f"[{timestamp}] Removed existing job: {job_id}")
             
-            self.logger.debug(f"Scheduling new job: {job_id} with interval {interval_seconds}s")
+            self.logger.debug(f"[{timestamp}] Scheduling new job: {job_id} with interval {interval_seconds}s")
             trigger = IntervalTrigger(seconds=interval_seconds)
+            
+            # Add the job with detailed metadata
             self.scheduler.add_job(
                 job_func,
                 trigger=trigger,
@@ -79,21 +103,39 @@ class SchedulerService:
                 max_instances=1
             )
             
+            # Update job registry with detailed status information
             self.job_registry[job_id] = {
                 'type': 'metrics_update',
                 'entity_type': entity_type,
                 'entity_id': entity_id,
                 'interval': interval_seconds,
-                'last_scheduled': datetime.now()
+                'created_at': timestamp,
+                'last_scheduled': timestamp,
+                'successful_runs': 0,
+                'last_status': 'scheduled',
+                'last_run': None,
+                'last_error': None
             }
             
-            self.logger.info(f"Successfully scheduled metrics update for {entity_type} {entity_id} "
-                           f"every {interval_seconds} seconds")
-            self.logger.debug(f"Current active jobs: {len(self.scheduler.get_jobs())}")
+            self.logger.info(f"[{timestamp}] Successfully scheduled metrics update for {entity_type} {entity_id} "
+                         f"every {interval_seconds} seconds")
+            
+            # Log current scheduler state
+            active_jobs = self.scheduler.get_jobs()
+            self.logger.debug(f"Current active jobs: {len(active_jobs)}")
+            for job in active_jobs:
+                self.logger.debug(f"Job: {job.id}, Next run: {job.next_run_time}")
+            
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to schedule metrics update job: {str(e)}")
+            self.logger.error(f"[{timestamp}] Failed to schedule metrics update job: {str(e)}")
             raise
 
-    # ... [rest of the methods remain the same]
+    def get_job_status(self, job_id):
+        """Get detailed status of a specific job"""
+        return self.job_registry.get(job_id)
+
+    def get_all_job_statuses(self):
+        """Get status of all registered jobs"""
+        return self.job_registry
