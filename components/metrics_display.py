@@ -3,6 +3,8 @@ import pandas as pd
 from services.metric_analyzer import MetricAnalyzer
 from utils.helpers import format_code_lines, format_technical_debt
 from database.schema import get_update_preferences
+from database.connection import execute_query
+from datetime import datetime
 
 def format_update_interval(seconds):
     """Format update interval in a human-readable way"""
@@ -18,23 +20,58 @@ def format_last_update(timestamp):
     """Format last update timestamp in a human-readable way"""
     if not timestamp:
         return "No updates yet"
-    from datetime import datetime
-    if isinstance(timestamp, str):
-        try:
+    
+    try:
+        if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        except ValueError:
-            return "Invalid timestamp"
-    
-    now = datetime.now()
-    diff = now - timestamp
-    
-    if diff.days > 0:
-        return f"{diff.days}d ago"
-    elif diff.seconds >= 3600:
-        return f"{diff.seconds//3600}h ago"
-    elif diff.seconds >= 60:
-        return f"{diff.seconds//60}m ago"
-    return f"{diff.seconds}s ago"
+        now = datetime.now()
+        diff = now - timestamp
+        
+        if diff.days > 0:
+            return f"{diff.days}d ago"
+        elif diff.seconds >= 3600:
+            return f"{diff.seconds//3600}h ago"
+        elif diff.seconds >= 60:
+            return f"{diff.seconds//60}m ago"
+        return f"{diff.seconds}s ago"
+    except (ValueError, TypeError) as e:
+        print(f"Error formatting timestamp: {str(e)}")
+        return "Invalid timestamp"
+
+def get_last_update_timestamp(project_key):
+    """Get the latest timestamp from metrics table for a project"""
+    query = """
+    SELECT m.timestamp
+    FROM metrics m
+    JOIN repositories r ON r.id = m.repository_id
+    WHERE r.repo_key = %s
+    ORDER BY m.timestamp DESC
+    LIMIT 1;
+    """
+    try:
+        result = execute_query(query, (project_key,))
+        if result and result[0]:
+            return result[0][0]
+        return None
+    except Exception as e:
+        print(f"Error getting last update timestamp: {str(e)}")
+        return None
+
+def get_project_update_interval(project_key):
+    """Get update interval from repositories table"""
+    query = """
+    SELECT update_interval
+    FROM repositories
+    WHERE repo_key = %s;
+    """
+    try:
+        result = execute_query(query, (project_key,))
+        if result and result[0]:
+            return result[0][0]
+        return 3600  # Default to 1 hour
+    except Exception as e:
+        print(f"Error getting update interval: {str(e)}")
+        return 3600
 
 def create_metric_card(title, value, status, help_text):
     """Create a styled metric card with help tooltip"""
@@ -54,6 +91,140 @@ def create_metric_card(title, value, status, help_text):
     """, unsafe_allow_html=True)
     if help_text:
         st.markdown(f'<small style="color: #A0AEC0;">{help_text}</small>', unsafe_allow_html=True)
+
+def display_multi_project_metrics(projects_data):
+    """Display metrics for multiple projects in a comparative view"""
+    st.markdown("""
+        <style>
+        .project-card {
+            background: #1A1F25;
+            border: 1px solid #2D3748;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .metric-item {
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            background: #2D3748;
+        }
+        .metric-title {
+            color: #A0AEC0;
+            font-size: 0.8rem;
+        }
+        .metric-value {
+            color: #FAFAFA;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .totals-card {
+            background: #2D3748;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .update-interval {
+            color: #A0AEC0;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    analyzer = MetricAnalyzer()
+    
+    metrics_list = []
+    for project_key, data in projects_data.items():
+        metrics = data['metrics']
+        metrics['project_key'] = project_key
+        metrics['project_name'] = data['name']
+        metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
+        
+        # Get update interval directly from repositories table
+        metrics['update_interval'] = get_project_update_interval(project_key)
+        
+        # Get last update timestamp from metrics table
+        metrics['last_update'] = get_last_update_timestamp(project_key)
+        
+        metrics_list.append(metrics)
+    
+    df = pd.DataFrame(metrics_list)
+    
+    total_lines = df['ncloc'].sum()
+    total_debt = df['sqale_index'].sum()
+    
+    st.markdown(f"""
+        <div class="totals-card">
+            <h3 style="color: #FAFAFA;">📊 Organization Totals</h3>
+            <div class="metric-grid">
+                <div class="metric-item">
+                    <div class="metric-title">Total Lines of Code</div>
+                    <div class="metric-value">{format_code_lines(total_lines)} 📏</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-title">Total Technical Debt</div>
+                    <div class="metric-value">{format_technical_debt(total_debt)} ⏱️</div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    df = df.sort_values('quality_score', ascending=False)
+    
+    for _, row in df.iterrows():
+        interval_display = format_update_interval(row['update_interval'])
+        last_update_display = format_last_update(row['last_update'])
+        
+        st.markdown(f"""
+            <div class="project-card">
+                <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
+                <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
+                <div class="update-interval">
+                    <span>⏱️ Update interval: {interval_display}</span>
+                    <span>•</span>
+                    <span>🕒 {last_update_display}</span>
+                </div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-title">Lines of Code</div>
+                        <div class="metric-value">{format_code_lines(row['ncloc'])} 📏</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Technical Debt</div>
+                        <div class="metric-value">{format_technical_debt(row['sqale_index'])} ⏱️</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Bugs</div>
+                        <div class="metric-value">{int(row['bugs'])} 🐛</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Vulnerabilities</div>
+                        <div class="metric-value">{int(row['vulnerabilities'])} ⚠️</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Code Smells</div>
+                        <div class="metric-value">{int(row['code_smells'])} 🔧</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Coverage</div>
+                        <div class="metric-value">{row['coverage']:.1f}% 📊</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-title">Duplication</div>
+                        <div class="metric-value">{row['duplicated_lines_density']:.1f}% 📝</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
 def display_current_metrics(metrics_data):
     """Display current metrics for a single project"""
@@ -160,139 +331,6 @@ def display_current_metrics(metrics_data):
             "📝",
             "Percentage of duplicated lines in the codebase"
         )
-
-def display_multi_project_metrics(projects_data):
-    """Display metrics for multiple projects in a comparative view"""
-    st.markdown("""
-        <style>
-        .project-card {
-            background: #1A1F25;
-            border: 1px solid #2D3748;
-            border-radius: 0.5rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-        .metric-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-        .metric-item {
-            padding: 0.5rem;
-            border-radius: 0.25rem;
-            background: #2D3748;
-        }
-        .metric-title {
-            color: #A0AEC0;
-            font-size: 0.8rem;
-        }
-        .metric-value {
-            color: #FAFAFA;
-            font-size: 1.2rem;
-            font-weight: bold;
-        }
-        .totals-card {
-            background: #2D3748;
-            border-radius: 0.5rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-        .update-interval {
-            color: #A0AEC0;
-            font-size: 0.8rem;
-            margin-top: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    analyzer = MetricAnalyzer()
-    
-    metrics_list = []
-    for project_key, data in projects_data.items():
-        metrics = data['metrics']
-        metrics['project_key'] = project_key
-        metrics['project_name'] = data['name']
-        metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
-        
-        # Get update preferences for each project
-        update_prefs = get_update_preferences('repository', project_key)
-        metrics['update_interval'] = update_prefs.get('update_interval', 3600)
-        metrics['last_update'] = update_prefs.get('last_update')
-        
-        metrics_list.append(metrics)
-    
-    df = pd.DataFrame(metrics_list)
-    
-    total_lines = df['ncloc'].sum()
-    total_debt = df['sqale_index'].sum()
-    
-    st.markdown(f"""
-        <div class="totals-card">
-            <h3 style="color: #FAFAFA;">📊 Organization Totals</h3>
-            <div class="metric-grid">
-                <div class="metric-item">
-                    <div class="metric-title">Total Lines of Code</div>
-                    <div class="metric-value">{format_code_lines(total_lines)} 📏</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-title">Total Technical Debt</div>
-                    <div class="metric-value">{format_technical_debt(total_debt)} ⏱️</div>
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    df = df.sort_values('quality_score', ascending=False)
-    
-    for _, row in df.iterrows():
-        interval_display = format_update_interval(row['update_interval'])
-        last_update_display = format_last_update(row['last_update'])
-        
-        st.markdown(f"""
-            <div class="project-card">
-                <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
-                <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
-                <div class="update-interval">
-                    <span>⏱️ Update interval: {interval_display}</span>
-                    <span>•</span>
-                    <span>🕒 {last_update_display}</span>
-                </div>
-                <div class="metric-grid">
-                    <div class="metric-item">
-                        <div class="metric-title">Lines of Code</div>
-                        <div class="metric-value">{format_code_lines(row['ncloc'])} 📏</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-title">Technical Debt</div>
-                        <div class="metric-value">{format_technical_debt(row['sqale_index'])} ⏱️</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-title">Bugs</div>
-                        <div class="metric-value">{int(row['bugs'])} 🐛</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-title">Vulnerabilities</div>
-                        <div class="metric-value">{int(row['vulnerabilities'])} ⚠️</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-title">Code Smells</div>
-                        <div class="metric-value">{int(row['code_smells'])} 🔧</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-title">Coverage</div>
-                        <div class="metric-value">{row['coverage']:.1f}% 📊</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-title">Duplication</div>
-                        <div class="metric-value">{row['duplicated_lines_density']:.1f}% 📝</div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
 
 def create_download_report(data):
     """Create downloadable CSV report"""
