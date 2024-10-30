@@ -12,10 +12,35 @@ from components.policy_display import show_policies, get_policy_acceptance_statu
 from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
 from database.schema import initialize_database
+import logging
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize global services
 scheduler = SchedulerService()
 report_generator = None
 notification_service = None
+
+def verify_scheduler_status():
+    """Verify scheduler status and log active jobs"""
+    try:
+        if scheduler.scheduler.running:
+            active_jobs = scheduler.scheduler.get_jobs()
+            logger.info(f"Scheduler is running with {len(active_jobs)} active jobs")
+            for job in active_jobs:
+                logger.info(f"Active job: {job.id}, Next run: {job.next_run_time}")
+            return True
+        else:
+            logger.error("Scheduler is not running")
+            return False
+    except Exception as e:
+        logger.error(f"Error verifying scheduler status: {str(e)}")
+        return False
 
 def handle_project_switch():
     """Handle project selection changes without unnecessary refreshes"""
@@ -101,8 +126,16 @@ def main():
         
         global report_generator, notification_service
 
+        # Initialize and verify scheduler
         if not scheduler.scheduler.running:
+            logger.info("Starting scheduler service")
             scheduler.start()
+            if not verify_scheduler_status():
+                st.error("Failed to initialize scheduler service")
+                return
+        else:
+            logger.info("Scheduler service already running")
+            verify_scheduler_status()
 
         sidebar = setup_sidebar()
 
@@ -160,15 +193,14 @@ def main():
                         scheduler
                     )
         else:
-            # Individual Projects View with optimized refreshes
-            active_projects = sonar_api.get_projects()
+            projects = sonar_api.get_projects()
             
             # Get all projects including inactive ones
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
 
             # Build project names dictionary
-            for project in active_projects:
+            for project in projects:
                 project_names[project['key']] = f"✅ {project['name']}"
             
             for project in all_projects_status:
@@ -208,7 +240,7 @@ def main():
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
                 projects_data = {}
-                for project in active_projects:
+                for project in projects:
                     metrics = sonar_api.get_project_metrics(project['key'])
                     if metrics:
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
@@ -275,6 +307,7 @@ def main():
                         )
 
     except Exception as e:
+        logger.error(f"Application error: {str(e)}")
         st.error(f"Application error: {str(e)}")
 
 if __name__ == "__main__":
