@@ -1,7 +1,12 @@
 import pandas as pd
 from database.connection import execute_query
 from datetime import datetime, timedelta
-from database.schema import mark_project_for_deletion, unmark_project_for_deletion, delete_project_data
+from database.schema import (
+    mark_project_for_deletion,
+    unmark_project_for_deletion,
+    delete_project_data,
+    get_projects_in_group as schema_get_projects_in_group
+)
 import logging
 
 # Configure logging
@@ -315,3 +320,28 @@ class MetricsProcessor:
         """Delete all data for a specific project"""
         logger.info(f"Deleting all data for project {repo_key}")
         return delete_project_data(repo_key)
+
+    @staticmethod
+    def get_projects_in_group(group_id):
+        """Get all projects in a specific group with their metrics and status"""
+        logger.info(f"Getting projects in group {group_id}")
+        try:
+            # Get projects using the schema function
+            projects = schema_get_projects_in_group(group_id)
+            
+            if not projects:
+                logger.debug(f"No projects found in group {group_id}")
+                return []
+            
+            # Enhance project data with additional metrics
+            for project in projects:
+                latest_metrics = MetricsProcessor.get_latest_metrics(project['repo_key'])
+                if latest_metrics:
+                    project.update(latest_metrics)
+            
+            logger.debug(f"Retrieved {len(projects)} projects from group {group_id}")
+            return projects
+            
+        except Exception as e:
+            logger.error(f"Error getting projects in group {group_id}: {str(e)}")
+            return []

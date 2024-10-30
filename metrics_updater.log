@@ -1,0 +1,5 @@
+2024-10-30 23:33:30,756 - services.metrics_updater - INFO - [20241030_233330_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-10-30 23:33:30,757 - services.metrics_updater - INFO - [20241030_233330_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-10-30 23:33:31,067 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-10-30 23:33:31,067 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-10-30 23:33:31,068 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
