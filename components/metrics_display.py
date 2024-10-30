@@ -4,7 +4,7 @@ from services.metric_analyzer import MetricAnalyzer
 from utils.helpers import format_code_lines, format_technical_debt
 from database.schema import get_update_preferences
 from database.connection import execute_query
-from datetime import datetime
+from datetime import datetime, timezone
 
 def format_update_interval(seconds):
     """Format update interval in a human-readable way"""
@@ -24,7 +24,10 @@ def format_last_update(timestamp):
     try:
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        now = datetime.now()
+        if not timestamp.tzinfo:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
         diff = now - timestamp
         
         if diff.days > 0:
@@ -41,7 +44,7 @@ def format_last_update(timestamp):
 def get_last_update_timestamp(project_key):
     """Get the latest timestamp from metrics table for a project"""
     query = """
-    SELECT m.timestamp
+    SELECT m.timestamp AT TIME ZONE 'UTC'
     FROM metrics m
     JOIN repositories r ON r.id = m.repository_id
     WHERE r.repo_key = %s
