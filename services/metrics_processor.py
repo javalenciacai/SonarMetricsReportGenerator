@@ -4,8 +4,7 @@ from datetime import datetime, timedelta
 from database.schema import (
     mark_project_for_deletion,
     unmark_project_for_deletion,
-    delete_project_data,
-    get_projects_in_group as schema_get_projects_in_group
+    delete_project_data
 )
 import logging
 
@@ -323,25 +322,49 @@ class MetricsProcessor:
 
     @staticmethod
     def get_projects_in_group(group_id):
-        """Get all projects in a specific group with their metrics and status"""
+        """Get all projects in a specific group with their status and metrics"""
         logger.info(f"Getting projects in group {group_id}")
+        query = """
+        SELECT 
+            r.repo_key,
+            r.name,
+            r.is_active,
+            r.is_marked_for_deletion,
+            r.last_seen,
+            r.consecutive_failures,
+            CURRENT_TIMESTAMP - r.last_seen as inactive_duration,
+            (SELECT row_to_json(m.*)
+             FROM metrics m
+             WHERE m.repository_id = r.id
+             ORDER BY m.timestamp DESC
+             LIMIT 1) as latest_metrics
+        FROM repositories r
+        WHERE r.group_id = %s
+        ORDER BY r.is_active DESC, r.is_marked_for_deletion, r.name;
+        """
         try:
-            # Get projects using the schema function
-            projects = schema_get_projects_in_group(group_id)
-            
-            if not projects:
-                logger.debug(f"No projects found in group {group_id}")
-                return []
-            
-            # Enhance project data with additional metrics
-            for project in projects:
-                latest_metrics = MetricsProcessor.get_latest_metrics(project['repo_key'])
-                if latest_metrics:
-                    project.update(latest_metrics)
-            
-            logger.debug(f"Retrieved {len(projects)} projects from group {group_id}")
-            return projects
-            
+            result = execute_query(query, (group_id,))
+            if result:
+                projects = []
+                for row in result:
+                    project_data = dict(row)
+                    if project_data['latest_metrics']:
+                        metrics = project_data['latest_metrics']
+                        project_data.update({
+                            'bugs': metrics.get('bugs', 0),
+                            'vulnerabilities': metrics.get('vulnerabilities', 0),
+                            'code_smells': metrics.get('code_smells', 0),
+                            'coverage': metrics.get('coverage', 0),
+                            'duplicated_lines_density': metrics.get('duplicated_lines_density', 0),
+                            'ncloc': metrics.get('ncloc', 0),
+                            'sqale_index': metrics.get('sqale_index', 0),
+                            'timestamp': metrics.get('timestamp')
+                        })
+                    projects.append(project_data)
+                logger.debug(f"Retrieved {len(projects)} projects from group {group_id}")
+                return projects
+            logger.debug(f"No projects found in group {group_id}")
+            return []
         except Exception as e:
             logger.error(f"Error getting projects in group {group_id}: {str(e)}")
             return []

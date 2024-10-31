@@ -9,7 +9,8 @@ from services.metrics_updater import update_entity_metrics
 from components.metrics_display import (
     display_current_metrics, create_download_report, 
     display_metric_trends, display_multi_project_metrics,
-    format_update_interval, format_last_update
+    format_update_interval, format_last_update,
+    get_last_update_timestamp, get_project_update_interval
 )
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
@@ -20,9 +21,14 @@ import logging
 from datetime import datetime, timezone
 import requests
 
+# Configure logging with UTC timezone
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -38,16 +44,13 @@ def register_repository_jobs():
         registered_count = 0
         failed_count = 0
         
-        logger.info(f"[{datetime.now()}] Starting automatic job registration for {len(all_projects)} repositories")
+        logger.info(f"Starting automatic job registration for {len(all_projects)} repositories")
         
         for project in all_projects:
             if project['is_active']:
                 try:
                     prefs = get_update_preferences('repository', project['repo_key'])
                     interval = prefs.get('update_interval', 3600)
-                    
-                    logger.debug(f"Registering job for repository: {project['repo_key']} "
-                                f"with interval: {interval}s")
                     
                     scheduler.schedule_metrics_update(
                         update_entity_metrics,
@@ -67,49 +70,25 @@ def register_repository_jobs():
         logger.error(f"Error during job registration: {str(e)}")
         return False
 
-def verify_scheduler_status():
-    """Verify scheduler status and log active jobs"""
-    try:
-        if scheduler.scheduler.running:
-            active_jobs = scheduler.scheduler.get_jobs()
-            logger.info(f"Scheduler is running with {len(active_jobs)} active jobs")
-            for job in active_jobs:
-                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else "Not scheduled"
-                logger.info(f"Active job: {job.id}, Next run: {next_run}")
-                job_status = scheduler.get_job_status(job.id)
-                if job_status:
-                    logger.debug(f"Job status: {job_status}")
-            return True
-        else:
-            logger.error("Scheduler is not running")
-            return False
-    except Exception as e:
-        logger.error(f"Error verifying scheduler status: {str(e)}")
-        return False
-
 def handle_project_switch():
-    """Handle project selection changes without unnecessary refreshes"""
+    """Handle project selection changes"""
     if 'previous_project' in st.session_state:
         if st.session_state.get('previous_project') != st.session_state.get('selected_project'):
             st.session_state.show_inactive = False
             st.session_state.previous_project = st.session_state.selected_project
             
-            # Check project status immediately when switching
             if st.session_state.selected_project and st.session_state.selected_project != 'all':
                 try:
                     sonar_api = SonarCloudAPI(st.session_state.sonar_token)
                     metrics_processor = MetricsProcessor()
                     
                     try:
-                        # Attempt to fetch project metrics
                         metrics = sonar_api.get_project_metrics(st.session_state.selected_project)
                         if not metrics:
-                            # Mark project as inactive if no metrics found
                             metrics_processor.mark_project_inactive(st.session_state.selected_project)
                             logger.warning(f"Project {st.session_state.selected_project} marked as inactive - no metrics found")
                     except requests.exceptions.HTTPError as e:
                         if e.response.status_code == 404:
-                            # Immediately mark project as inactive on 404
                             metrics_processor.mark_project_inactive(st.session_state.selected_project)
                             logger.warning(f"Project {st.session_state.selected_project} marked as inactive - not found in SonarCloud")
                         else:
@@ -123,8 +102,8 @@ def handle_inactive_project(project_key, metrics_processor):
     with col1:
         project_data = metrics_processor.get_latest_metrics(project_key)
         if project_data:
-            inactive_duration = project_data.get('inactive_duration')
-            last_seen = project_data.get('last_seen')
+            inactive_duration = project_data.get('inactive_duration', '')
+            last_seen = project_data.get('last_seen', '')
             st.warning(f"""
                 ⚠️ This project appears to be inactive.
                 - Last seen: {last_seen}
@@ -138,7 +117,7 @@ def handle_inactive_project(project_key, metrics_processor):
                 success, msg = metrics_processor.unmark_project_for_deletion(project_key)
                 if success:
                     st.success("✅ Project unmarked for deletion")
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.error(f"Failed to unmark project: {msg}")
             
@@ -146,7 +125,7 @@ def handle_inactive_project(project_key, metrics_processor):
                 success, msg = metrics_processor.delete_project_data(project_key)
                 if success:
                     st.success("✅ Project deleted successfully")
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.error(f"Failed to delete project: {msg}")
         else:
@@ -154,23 +133,24 @@ def handle_inactive_project(project_key, metrics_processor):
                 success, msg = metrics_processor.mark_project_for_deletion(project_key)
                 if success:
                     st.success("✅ Project marked for deletion")
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.error(f"Failed to mark project: {msg}")
 
 def setup_sidebar():
     """Setup sidebar with optimized state management"""
     with st.sidebar:
-        st.markdown("""
-            <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
-                <img src="static/sonarcloud-logo.svg" alt="SonarCloud Logo" style="width: 180px; height: auto;">
-            </div>
-        """, unsafe_allow_html=True)
+        st.image("static/sonarcloud-logo.svg", width=180)
         st.markdown("---")
         return st.sidebar
 
 def main():
     try:
+        # Initialize database before any other operations
+        if not initialize_database():
+            st.error("Failed to initialize database. Please check the database connection.")
+            return
+
         st.set_page_config(
             page_title="SonarCloud Metrics Dashboard",
             page_icon="📊",
@@ -178,6 +158,7 @@ def main():
             initial_sidebar_state="expanded"
         )
 
+        # Initialize session state
         if 'initialized' not in st.session_state:
             st.session_state.initialized = True
             st.session_state.policies_accepted = False
@@ -188,27 +169,19 @@ def main():
             st.session_state.show_inactive_projects = True
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
-
-        initialize_database()
         
         global report_generator, notification_service
 
+        # Initialize and start scheduler
         if not scheduler.scheduler.running:
             logger.info("Starting scheduler service")
             scheduler.start()
-            if not verify_scheduler_status():
-                st.error("Failed to initialize scheduler service")
-                return
-                
             logger.info("Registering update jobs for repositories")
             if not register_repository_jobs():
                 logger.warning("Failed to register some repository update jobs")
-        else:
-            logger.info("Scheduler service already running")
-            verify_scheduler_status()
-
+        
         sidebar = setup_sidebar()
-
+        
         with sidebar:
             st.markdown("### 📊 Navigation")
             with st.form(key="navigation_form"):
@@ -217,7 +190,7 @@ def main():
                     ["Individual Projects", "Project Groups"],
                     key="view_mode"
                 )
-                navigation_changed = st.form_submit_button("Update View")
+                st.form_submit_button("Update View")
         
         token = os.getenv('SONARCLOUD_TOKEN') or st.text_input(
             "Enter SonarCloud Token",
@@ -230,7 +203,7 @@ def main():
             return
 
         st.session_state.sonar_token = token
-
+        
         with st.sidebar:
             show_policies()
         
@@ -253,20 +226,12 @@ def main():
 
         if view_mode == "Project Groups":
             manage_project_groups(sonar_api)
-            if st.session_state.get('selected_group'):
-                st.sidebar.markdown("---")
-                with st.sidebar:
-                    display_interval_settings(
-                        'group',
-                        st.session_state.selected_group,
-                        scheduler
-                    )
         else:
             # Get all projects status
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
             project_status = {}
-
+            
             # Build project status dictionary
             for project in all_projects_status:
                 status_prefix = "✅"
@@ -299,12 +264,12 @@ def main():
                 with st.form(key="project_filter_form"):
                     show_inactive = st.checkbox(
                         "Show Inactive Projects",
-                        value=st.session_state.show_inactive_projects
+                        value=st.session_state.show_inactive_projects,
+                        help="Show/hide inactive and marked for deletion projects"
                     )
-                    apply_filter = st.form_submit_button("Apply Filter")
-                    
-                    if apply_filter:
+                    if st.form_submit_button("Apply Filter"):
                         st.session_state.show_inactive_projects = show_inactive
+                        st.experimental_rerun()
 
             # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
@@ -323,16 +288,15 @@ def main():
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
                 
-                # Combined projects data dictionary for both active and inactive projects
-                projects_data = {}
-                
                 # Process all projects
+                projects_data = {}
                 for project_key, status in project_status.items():
                     if project_key == 'all':
                         continue
                         
                     project_metrics = None
                     
+                    # Try to get current metrics for active projects
                     if status['is_active']:
                         try:
                             metrics = sonar_api.get_project_metrics(project_key)
@@ -343,8 +307,8 @@ def main():
                                 metrics_processor.mark_project_inactive(project_key)
                                 logger.warning(f"Project {project_key} marked as inactive - not found in SonarCloud")
                     
-                    # If no active metrics or inactive project, get historical data
-                    if not project_metrics and (not status['is_active'] or not project_metrics):
+                    # Get historical data for inactive projects or if current metrics failed
+                    if not project_metrics or not status['is_active']:
                         latest_metrics = metrics_processor.get_latest_metrics(project_key)
                         if latest_metrics:
                             project_metrics = {
@@ -354,8 +318,7 @@ def main():
                                 'coverage': float(latest_metrics.get('coverage', 0)),
                                 'duplicated_lines_density': float(latest_metrics.get('duplicated_lines_density', 0)),
                                 'ncloc': float(latest_metrics.get('ncloc', 0)),
-                                'sqale_index': float(latest_metrics.get('sqale_index', 0)),
-                                'timestamp': latest_metrics.get('timestamp')
+                                'sqale_index': float(latest_metrics.get('sqale_index', 0))
                             }
                     
                     if project_metrics:
@@ -363,38 +326,58 @@ def main():
                             'name': status['name'],
                             'metrics': project_metrics,
                             'is_active': status['is_active'],
-                            'is_marked_for_deletion': status['is_marked_for_deletion']
+                            'is_marked_for_deletion': status.get('is_marked_for_deletion', False)
                         }
                 
-                # Display all projects or filter based on inactive setting
-                filtered_projects_data = {}
-                for project_key, data in projects_data.items():
-                    if show_inactive or data['is_active']:
-                        filtered_projects_data[project_key] = data
-                
-                if filtered_projects_data:
-                    display_multi_project_metrics(filtered_projects_data)
-                    plot_multi_project_comparison(filtered_projects_data)
-                    create_download_report(filtered_projects_data)
+                # Display projects based on filter
+                if projects_data:
+                    if show_inactive:
+                        display_multi_project_metrics(projects_data)
+                        create_download_report(projects_data)
+                    else:
+                        # Filter out inactive projects
+                        filtered_projects_data = {
+                            k: v for k, v in projects_data.items()
+                            if v.get('is_active', True) and not v.get('is_marked_for_deletion', False)
+                        }
+                        if filtered_projects_data:
+                            display_multi_project_metrics(filtered_projects_data)
+                            create_download_report(filtered_projects_data)
+                        else:
+                            st.info("No active projects found matching the current filter settings")
                 else:
                     st.info("No projects found matching the current filter settings")
-            
+
             elif selected_project:
                 project_info = project_status.get(selected_project, {})
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
                 
+                # Handle inactive projects
                 is_inactive = not project_info.get('is_active', True)
-                
                 if is_inactive:
                     handle_inactive_project(selected_project, metrics_processor)
-                
-                try:
-                    if is_inactive:
-                        # Display historical data for inactive project
-                        project_data = metrics_processor.get_latest_metrics(selected_project)
-                        if project_data:
-                            metrics_dict = {k: float(v) for k, v in project_data.items() 
-                                        if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
+                    
+                    # Display historical data for inactive projects
+                    project_data = metrics_processor.get_latest_metrics(selected_project)
+                    if project_data:
+                        metrics_dict = {k: float(v) for k, v in project_data.items() 
+                                    if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
+                        display_current_metrics(metrics_dict)
+                        
+                        historical_data = metrics_processor.get_historical_data(selected_project)
+                        if historical_data:
+                            plot_metrics_history(historical_data)
+                            display_metric_trends(historical_data)
+                            create_download_report({selected_project: {
+                                'name': project_info['name'],
+                                'metrics': metrics_dict
+                            }})
+                else:
+                    # Get and display current metrics for active projects
+                    try:
+                        metrics = sonar_api.get_project_metrics(selected_project)
+                        if metrics:
+                            metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                             display_current_metrics(metrics_dict)
                             
                             historical_data = metrics_processor.get_historical_data(selected_project)
@@ -405,42 +388,27 @@ def main():
                                     'name': project_info['name'],
                                     'metrics': metrics_dict
                                 }})
-                    else:
-                        # Display current data for active project
-                        metrics = sonar_api.get_project_metrics(selected_project)
-                        if metrics:
-                            metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                            display_current_metrics(metrics_dict)
-                            create_download_report({selected_project: {
-                                'name': project_info['name'],
-                                'metrics': metrics_dict
-                            }})
+                            
+                            st.sidebar.markdown("---")
+                            with st.sidebar:
+                                display_interval_settings(
+                                    'repository',
+                                    selected_project,
+                                    scheduler
+                                )
                         else:
                             st.warning("No metrics available for this project")
-                except requests.exceptions.HTTPError as e:
-                    if e.response.status_code == 404 and not is_inactive:
-                        metrics_processor.mark_project_inactive(selected_project)
-                        st.warning("⚠️ Project not found in SonarCloud. Marked as inactive.")
-                        st.rerun()
-                    elif is_inactive:
-                        st.info("Using historical data for inactive project")
-                    else:
-                        st.error(f"Failed to fetch metrics: {str(e)}")
-                except Exception as e:
-                    st.error(f"Error displaying project data: {str(e)}")
-
-                if selected_project != 'all' and not is_inactive:
-                    st.sidebar.markdown("---")
-                    with st.sidebar:
-                        display_interval_settings(
-                            'repository',
-                            selected_project,
-                            scheduler
-                        )
+                    except requests.exceptions.HTTPError as e:
+                        if e.response.status_code == 404:
+                            metrics_processor.mark_project_inactive(selected_project)
+                            st.error("Project not found in SonarCloud. Marked as inactive.")
+                            st.experimental_rerun()
+                        else:
+                            st.error(f"Error fetching metrics: {str(e)}")
 
     except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
         logger.error(f"Main application error: {str(e)}", exc_info=True)
+        st.error(f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
     main()
