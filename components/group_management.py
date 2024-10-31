@@ -96,7 +96,7 @@ def manage_groups(sonar_api):
         return
     
     metrics_processor = MetricsProcessor()
-    all_projects = metrics_processor.get_project_status()
+    projects = sonar_api.get_projects()
     
     for group in groups:
         with st.expander(f"📁 {group['name']}", expanded=True):
@@ -112,22 +112,19 @@ def manage_groups(sonar_api):
                 st.markdown(f"**Projects in group:** {project_count}")
                 
                 # Project assignment interface
-                if all_projects:
+                if projects:
                     st.markdown("#### Manage Projects")
                     
                     # Create sets of project keys for easier comparison
                     group_project_keys = {p['repo_key'] for p in group_projects} if group_projects else set()
-                    available_projects = [p for p in all_projects if p['repo_key'] not in group_project_keys]
+                    available_projects = [p for p in projects if p['key'] not in group_project_keys]
                     
                     # Add projects to group
                     if available_projects:
                         selected_projects = st.multiselect(
                             "Add Projects to Group",
-                            options=[p['repo_key'] for p in available_projects],
-                            format_func=lambda x: next(
-                                f"{p['name']} {'🗑️' if p.get('is_marked_for_deletion') else '⚠️' if not p['is_active'] else '✅'}"
-                                for p in available_projects if p['repo_key'] == x
-                            ),
+                            options=[p['key'] for p in available_projects],
+                            format_func=lambda x: next(p['name'] for p in available_projects if p['key'] == x),
                             key=f"add_projects_{group['id']}"
                         )
                         
@@ -151,8 +148,7 @@ def manage_groups(sonar_api):
                         for project in group_projects:
                             col5, col6 = st.columns([3, 1])
                             with col5:
-                                status_icon = "🗑️" if project.get('is_marked_for_deletion') else "⚠️" if not project.get('is_active', True) else "✅"
-                                st.markdown(f"• {status_icon} {project['name']}")
+                                st.markdown(f"• {project['name']}")
                             with col6:
                                 # Initialize remove confirmation state
                                 if f"remove_{project['repo_key']}" not in st.session_state.show_remove_confirm:
@@ -214,49 +210,22 @@ def display_grouped_metrics(sonar_api):
             if group['description']:
                 st.markdown(f"*{group['description']}*")
             
-            # Get projects in this group with their status
+            # Get projects in this group
+            projects_data = {}
             group_projects = metrics_processor.get_projects_in_group(group['id'])
             
             if not group_projects:
                 st.info("No projects in this group yet")
                 continue
             
-            projects_data = {}
             for project in group_projects:
                 try:
-                    # For active projects, try to get current metrics
-                    if project.get('is_active', True):
-                        try:
-                            metrics = sonar_api.get_project_metrics(project['repo_key'])
-                            if metrics:
-                                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                                projects_data[project['repo_key']] = {
-                                    'name': project['name'],
-                                    'metrics': metrics_dict,
-                                    'is_active': True,
-                                    'is_marked_for_deletion': False
-                                }
-                                continue
-                        except Exception as e:
-                            st.warning(f"Could not fetch current metrics for {project['name']}: {str(e)}")
-                    
-                    # For inactive projects or if current metrics fetch failed, use historical data
-                    latest_metrics = metrics_processor.get_latest_metrics(project['repo_key'])
-                    if latest_metrics:
-                        metrics_dict = {
-                            'bugs': float(latest_metrics.get('bugs', 0)),
-                            'vulnerabilities': float(latest_metrics.get('vulnerabilities', 0)),
-                            'code_smells': float(latest_metrics.get('code_smells', 0)),
-                            'coverage': float(latest_metrics.get('coverage', 0)),
-                            'duplicated_lines_density': float(latest_metrics.get('duplicated_lines_density', 0)),
-                            'ncloc': float(latest_metrics.get('ncloc', 0)),
-                            'sqale_index': float(latest_metrics.get('sqale_index', 0))
-                        }
+                    metrics = sonar_api.get_project_metrics(project['repo_key'])
+                    if metrics:
+                        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                         projects_data[project['repo_key']] = {
                             'name': project['name'],
-                            'metrics': metrics_dict,
-                            'is_active': project.get('is_active', False),
-                            'is_marked_for_deletion': project.get('is_marked_for_deletion', False)
+                            'metrics': metrics_dict
                         }
                 except Exception as e:
                     st.warning(f"Could not fetch metrics for {project['name']}: {str(e)}")
