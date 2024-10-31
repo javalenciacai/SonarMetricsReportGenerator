@@ -181,7 +181,7 @@ def main():
             st.session_state.selected_group = None
             st.session_state.show_inactive = False
             st.session_state.previous_project = None
-            st.session_state.show_inactive_projects = True
+            st.session_state.show_inactive_filter = False
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
 
@@ -270,7 +270,8 @@ def main():
             sonar_projects = sonar_api.get_projects()
             
             for project in sonar_projects:
-                project_names[project['key']] = f"✅ {project['name']}"
+                if project['key'] not in project_names:
+                    project_names[project['key']] = f"✅ {project['name']}"
 
             project_names['all'] = "📊 All Projects"
 
@@ -278,18 +279,24 @@ def main():
                 st.markdown("### 🔍 Project Selection")
                 with st.form(key="project_filter_form"):
                     show_inactive = st.checkbox(
-                        "Show Inactive Projects",
-                        value=st.session_state.show_inactive_projects
+                        "Show Only Inactive Projects",
+                        value=st.session_state.show_inactive_filter,
+                        help="Show only projects that are no longer active in SonarCloud"
                     )
                     apply_filter = st.form_submit_button("Apply Filter")
                     
                     if apply_filter:
-                        st.session_state.show_inactive_projects = show_inactive
+                        st.session_state.show_inactive_filter = show_inactive
+                        st.rerun()
 
             filtered_projects = {k: v for k, v in project_names.items()}
-            if not show_inactive:
+            if st.session_state.show_inactive_filter:
+                # Show only inactive projects and 'all' option
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
-                                  if '⚠️' not in v and '🗑️' not in v or k == 'all'}
+                                  if ('⚠️' in v or '🗑️' in v) or k == 'all'}
+            else:
+                # Show all projects
+                filtered_projects = project_names
 
             selected_project = st.sidebar.selectbox(
                 "Select Project",
@@ -301,25 +308,49 @@ def main():
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-                projects_data = {}
+                
+                # Get all active and inactive projects
+                all_project_data = {}
+                
+                # First, try to get metrics for projects in SonarCloud
                 for project in sonar_projects:
                     try:
                         metrics = sonar_api.get_project_metrics(project['key'])
                         if metrics:
                             metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                            projects_data[project['key']] = {
+                            all_project_data[project['key']] = {
                                 'name': project['name'],
-                                'metrics': metrics_dict
+                                'metrics': metrics_dict,
+                                'status': 'active'
                             }
                     except requests.exceptions.HTTPError as e:
                         if e.response.status_code == 404:
                             metrics_processor.mark_project_inactive(project['key'])
-                            logger.warning(f"Project {project['key']} marked as inactive - not found in SonarCloud")
                 
-                if projects_data:
-                    display_multi_project_metrics(projects_data)
-                    plot_multi_project_comparison(projects_data)
-                    create_download_report(projects_data)
+                # Get inactive projects if filter is enabled
+                if st.session_state.show_inactive_filter:
+                    inactive_projects = [p for p in all_projects_status if not p['is_active']]
+                    for project in inactive_projects:
+                        if project['repo_key'] not in all_project_data:
+                            latest_metrics = metrics_processor.get_latest_metrics(project['repo_key'])
+                            if latest_metrics:
+                                metrics_dict = {k: float(v) for k, v in latest_metrics.items() 
+                                             if k not in ['timestamp', 'last_seen', 'is_active', 
+                                                        'inactive_duration', 'is_marked_for_deletion']}
+                                all_project_data[project['repo_key']] = {
+                                    'name': project['name'],
+                                    'metrics': metrics_dict,
+                                    'status': 'inactive',
+                                    'last_seen': latest_metrics.get('last_seen'),
+                                    'inactive_duration': latest_metrics.get('inactive_duration')
+                                }
+                
+                if all_project_data:
+                    display_multi_project_metrics(all_project_data)
+                    plot_multi_project_comparison(all_project_data)
+                    create_download_report(all_project_data)
+                else:
+                    st.info("No projects found matching the current filter.")
             
             elif selected_project:
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
@@ -358,29 +389,16 @@ def main():
                 
                 if metrics:
                     metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                    metrics_processor.store_metrics(selected_project, 
-                                                 project_names[selected_project].split(" ")[1], 
-                                                 metrics_dict)
                     display_current_metrics(metrics_dict)
-                    
                     historical_data = metrics_processor.get_historical_data(selected_project)
                     if historical_data:
                         plot_metrics_history(historical_data)
                         display_metric_trends(historical_data)
-                        create_download_report(historical_data)
-
-                if selected_project != 'all' and not is_inactive:
-                    st.sidebar.markdown("---")
-                    with st.sidebar:
-                        display_interval_settings(
-                            'repository',
-                            selected_project,
-                            scheduler
-                        )
-
+                    create_download_report(metrics_dict)
+                    
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
-        st.error(f"Application error: {str(e)}")
+        st.error("An error occurred. Please check the logs for details.")
 
 if __name__ == "__main__":
     main()
