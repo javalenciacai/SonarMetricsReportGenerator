@@ -117,17 +117,6 @@ def handle_project_switch():
                 except Exception as e:
                     logger.error(f"Error checking project status: {str(e)}")
 
-def setup_sidebar():
-    """Setup sidebar with optimized state management"""
-    with st.sidebar:
-        st.markdown("""
-            <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
-                <img src="static/sonarcloud-logo.svg" alt="SonarCloud Logo" style="width: 180px; height: auto;">
-            </div>
-        """, unsafe_allow_html=True)
-        st.markdown("---")
-        return st.sidebar
-
 def handle_inactive_project(project_key, metrics_processor):
     """Handle actions for inactive projects"""
     col1, col2 = st.columns([3, 1])
@@ -169,43 +158,16 @@ def handle_inactive_project(project_key, metrics_processor):
                 else:
                     st.error(f"Failed to mark project: {msg}")
 
-def display_project_card(project_key, project_name, metrics_data, is_inactive=False, is_marked_for_deletion=False):
-    """Display a project card with metrics and status"""
-    status_prefix = "🗑️" if is_marked_for_deletion else "⚠️" if is_inactive else "✅"
-    
-    # Get update interval and last update
-    update_interval = get_update_preferences('repository', project_key).get('update_interval', 3600)
-    interval_display = format_update_interval(update_interval)
-    
-    last_update = metrics_data.get('timestamp') if metrics_data else None
-    last_update_display = format_last_update(last_update)
-    
-    st.markdown(f"""
-        <div class="project-card">
-            <h3 style="color: #FAFAFA;">{status_prefix} {project_name}</h3>
-            <div class="update-interval">
-                <span>⏱️ Update interval: {interval_display}</span>
-                <span>•</span>
-                <span>🕒 {last_update_display}</span>
+def setup_sidebar():
+    """Setup sidebar with optimized state management"""
+    with st.sidebar:
+        st.markdown("""
+            <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
+                <img src="static/sonarcloud-logo.svg" alt="SonarCloud Logo" style="width: 180px; height: auto;">
             </div>
-            <div class="metric-grid">
-    """, unsafe_allow_html=True)
-    
-    if metrics_data:
-        metrics_dict = {
-            'ncloc': metrics_data.get('ncloc', 0),
-            'bugs': metrics_data.get('bugs', 0),
-            'vulnerabilities': metrics_data.get('vulnerabilities', 0),
-            'code_smells': metrics_data.get('code_smells', 0),
-            'coverage': metrics_data.get('coverage', 0),
-            'duplicated_lines_density': metrics_data.get('duplicated_lines_density', 0),
-            'sqale_index': metrics_data.get('sqale_index', 0)
-        }
-        display_current_metrics(metrics_dict)
-    else:
-        st.info("No metrics data available for this project")
-    
-    st.markdown("</div></div>", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        st.markdown("---")
+        return st.sidebar
 
 def main():
     try:
@@ -361,69 +323,61 @@ def main():
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
                 
-                # Display active projects
-                active_projects = []
-                inactive_projects = []
+                # Combined projects data dictionary for both active and inactive projects
+                projects_data = {}
                 
+                # Process all projects
                 for project_key, status in project_status.items():
+                    if project_key == 'all':
+                        continue
+                        
+                    project_metrics = None
+                    
                     if status['is_active']:
                         try:
                             metrics = sonar_api.get_project_metrics(project_key)
                             if metrics:
-                                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                                active_projects.append({
-                                    'key': project_key,
-                                    'name': status['name'],
-                                    'metrics': metrics_dict
-                                })
-                            else:
-                                metrics_processor.mark_project_inactive(project_key)
-                                logger.warning(f"Project {project_key} marked as inactive - no metrics found")
+                                project_metrics = {m['metric']: float(m['value']) for m in metrics}
                         except requests.exceptions.HTTPError as e:
                             if e.response.status_code == 404:
                                 metrics_processor.mark_project_inactive(project_key)
                                 logger.warning(f"Project {project_key} marked as inactive - not found in SonarCloud")
-                    else:
-                        # Get historical data for inactive projects
+                    
+                    # If no active metrics or inactive project, get historical data
+                    if not project_metrics and (not status['is_active'] or not project_metrics):
                         latest_metrics = metrics_processor.get_latest_metrics(project_key)
                         if latest_metrics:
-                            inactive_projects.append({
-                                'key': project_key,
-                                'name': status['name'],
-                                'metrics': latest_metrics,
-                                'is_marked_for_deletion': status['is_marked_for_deletion']
-                            })
+                            project_metrics = {
+                                'bugs': float(latest_metrics.get('bugs', 0)),
+                                'vulnerabilities': float(latest_metrics.get('vulnerabilities', 0)),
+                                'code_smells': float(latest_metrics.get('code_smells', 0)),
+                                'coverage': float(latest_metrics.get('coverage', 0)),
+                                'duplicated_lines_density': float(latest_metrics.get('duplicated_lines_density', 0)),
+                                'ncloc': float(latest_metrics.get('ncloc', 0)),
+                                'sqale_index': float(latest_metrics.get('sqale_index', 0)),
+                                'timestamp': latest_metrics.get('timestamp')
+                            }
+                    
+                    if project_metrics:
+                        projects_data[project_key] = {
+                            'name': status['name'],
+                            'metrics': project_metrics,
+                            'is_active': status['is_active'],
+                            'is_marked_for_deletion': status['is_marked_for_deletion']
+                        }
                 
-                # Display active projects first
-                if active_projects:
-                    st.markdown("### ✅ Active Projects")
-                    projects_data = {p['key']: {'name': p['name'], 'metrics': p['metrics']} 
-                                  for p in active_projects}
-                    display_multi_project_metrics(projects_data)
-                    plot_multi_project_comparison(projects_data)
+                # Display all projects or filter based on inactive setting
+                filtered_projects_data = {}
+                for project_key, data in projects_data.items():
+                    if show_inactive or data['is_active']:
+                        filtered_projects_data[project_key] = data
                 
-                # Display inactive projects if enabled
-                if show_inactive and inactive_projects:
-                    st.markdown("### ⚠️ Inactive Projects")
-                    for project in inactive_projects:
-                        display_project_card(
-                            project['key'],
-                            project['name'],
-                            project['metrics'],
-                            is_inactive=True,
-                            is_marked_for_deletion=project['is_marked_for_deletion']
-                        )
-                
-                # Create combined report
-                all_projects_data = {}
-                for p in active_projects:
-                    all_projects_data[p['key']] = {'name': p['name'], 'metrics': p['metrics']}
-                if show_inactive:
-                    for p in inactive_projects:
-                        all_projects_data[p['key']] = {'name': p['name'], 'metrics': p['metrics']}
-                
-                if all_projects_data:
-                    create_download_report(all_projects_data)
+                if filtered_projects_data:
+                    display_multi_project_metrics(filtered_projects_data)
+                    plot_multi_project_comparison(filtered_projects_data)
+                    create_download_report(filtered_projects_data)
+                else:
+                    st.info("No projects found matching the current filter settings")
             
             elif selected_project:
                 project_info = project_status.get(selected_project, {})
@@ -474,6 +428,15 @@ def main():
                         st.error(f"Failed to fetch metrics: {str(e)}")
                 except Exception as e:
                     st.error(f"Error displaying project data: {str(e)}")
+
+                if selected_project != 'all' and not is_inactive:
+                    st.sidebar.markdown("---")
+                    with st.sidebar:
+                        display_interval_settings(
+                            'repository',
+                            selected_project,
+                            scheduler
+                        )
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
