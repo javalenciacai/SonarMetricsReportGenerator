@@ -5,7 +5,6 @@ from utils.helpers import format_code_lines, format_technical_debt
 from database.schema import get_update_preferences
 from database.connection import execute_query
 from datetime import datetime, timezone
-from services.metrics_processor import MetricsProcessor
 
 def format_update_interval(seconds):
     """Format update interval in a human-readable way"""
@@ -230,88 +229,6 @@ def display_multi_project_metrics(projects_data):
             </div>
         """, unsafe_allow_html=True)
 
-def create_download_report(data, include_inactive=False):
-    """Create downloadable CSV report with option to include inactive projects"""
-    st.markdown('<h3 style="color: #FAFAFA;">📥 Download Report</h3>', unsafe_allow_html=True)
-
-    include_inactive_checkbox = st.checkbox(
-        "Include Inactive Projects",
-        value=include_inactive,
-        help="Include metrics from inactive projects in the report"
-    )
-    
-    # Get all project data including inactive if requested
-    metrics_processor = MetricsProcessor()
-    all_projects = metrics_processor.get_project_status()
-    
-    report_data = []
-    for project in all_projects:
-        # Skip inactive projects if checkbox is not checked
-        if not project['is_active'] and not include_inactive_checkbox:
-            continue
-            
-        project_metrics = project.get('latest_metrics', {})
-        if project_metrics:
-            metrics_data = {
-                'project_key': project['repo_key'],
-                'project_name': project['name'],
-                'is_active': project['is_active'],
-                'last_seen': project['last_seen'],
-                'inactive_duration': project['inactive_duration'] if not project['is_active'] else None,
-                'is_marked_for_deletion': project['is_marked_for_deletion'],
-                **{k: float(v) for k, v in project_metrics.items() if k not in ['timestamp', 'repository_id', 'id']}
-            }
-            report_data.append(metrics_data)
-    
-    if not report_data:
-        st.warning("No data available for report generation")
-        return
-        
-    df = pd.DataFrame(report_data)
-    
-    # Add quality scores and status indicators
-    analyzer = MetricAnalyzer()
-    df['quality_score'] = df.apply(
-        lambda row: analyzer.calculate_quality_score(row.to_dict()), 
-        axis=1
-    )
-    
-    # Format durations and technical debt
-    if 'sqale_index' in df.columns:
-        df['technical_debt_formatted'] = df['sqale_index'].apply(format_technical_debt)
-    if 'ncloc' in df.columns:
-        df['lines_of_code_formatted'] = df['ncloc'].apply(format_code_lines)
-        
-    # Add status indicators
-    df['status_indicator'] = df.apply(
-        lambda row: '✅ Active' if row['is_active'] 
-        else '⚠️ Inactive' + (' (Marked for deletion)' if row['is_marked_for_deletion'] else ''),
-        axis=1
-    )
-    
-    # Reorder columns to put important information first
-    ordered_columns = [
-        'project_name', 'project_key', 'status_indicator', 'quality_score',
-        'lines_of_code_formatted', 'technical_debt_formatted', 'last_seen',
-        'inactive_duration'
-    ] + [col for col in df.columns if col not in {
-        'project_name', 'project_key', 'status_indicator', 'quality_score',
-        'lines_of_code_formatted', 'technical_debt_formatted', 'last_seen',
-        'inactive_duration', 'is_active', 'is_marked_for_deletion'
-    }]
-    
-    df = df[ordered_columns]
-    
-    # Generate CSV
-    csv = df.to_csv(index=False)
-    st.download_button(
-        label="📊 Download Detailed CSV Report",
-        data=csv,
-        file_name="sonarcloud_metrics_analysis.csv",
-        mime="text/csv",
-        help="Download a detailed CSV report containing all metrics and their historical data"
-    )
-
 def display_current_metrics(metrics_data):
     """Display current metrics for a single project"""
     st.markdown("""
@@ -417,3 +334,101 @@ def display_current_metrics(metrics_data):
             "📝",
             "Percentage of duplicated lines in the codebase"
         )
+
+def create_download_report(data):
+    """Create downloadable CSV report"""
+    st.markdown('<h3 style="color: #FAFAFA;">📥 Download Report</h3>', unsafe_allow_html=True)
+    df = pd.DataFrame(data)
+    
+    analyzer = MetricAnalyzer()
+    df['quality_score'] = df.apply(lambda row: analyzer.calculate_quality_score(row.to_dict()), axis=1)
+    
+    status_df = pd.DataFrame([analyzer.get_metric_status(row.to_dict()) 
+                           for _, row in df.iterrows()])
+    
+    if 'sqale_index' in df.columns:
+        df['technical_debt_formatted'] = df['sqale_index'].apply(format_technical_debt)
+    if 'ncloc' in df.columns:
+        df['lines_of_code_formatted'] = df['ncloc'].apply(format_code_lines)
+    
+    final_df = pd.concat([df, status_df], axis=1)
+    
+    csv = final_df.to_csv(index=False)
+    st.download_button(
+        label="📊 Download Detailed CSV Report",
+        data=csv,
+        file_name="sonarcloud_metrics_analysis.csv",
+        mime="text/csv",
+        help="Download a detailed CSV report containing all metrics and their historical data"
+    )
+
+def display_metric_trends(historical_data):
+    """Display metric trends over time"""
+    st.markdown('<h3 style="color: #FAFAFA;">📈 Trend Analysis</h3>', unsafe_allow_html=True)
+    
+    metrics = ['bugs', 'vulnerabilities', 'code_smells', 'coverage', 'duplicated_lines_density', 'ncloc', 'sqale_index']
+    analyzer = MetricAnalyzer()
+    
+    for metric in metrics:
+        trend_data = analyzer.calculate_trend(historical_data, metric)
+        period_comparison = analyzer.calculate_period_comparison(historical_data, metric)
+        
+        if trend_data and period_comparison:
+            metric_display_name = {
+                'ncloc': 'Lines of Code',
+                'sqale_index': 'Technical Debt'
+            }.get(metric, metric.replace('_', ' ').title())
+            
+            with st.expander(f"{metric_display_name} Analysis", expanded=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    trend_emoji = "📈" if trend_data['trend'] == 'increasing' else "📉" if trend_data['trend'] == 'decreasing' else "➡️"
+                    current_value = (
+                        format_code_lines(trend_data['current_value']) if metric == 'ncloc'
+                        else format_technical_debt(trend_data['current_value']) if metric == 'sqale_index'
+                        else f"{trend_data['current_value']:.2f}"
+                    )
+                    avg_value = (
+                        format_code_lines(trend_data['avg_value']) if metric == 'ncloc'
+                        else format_technical_debt(trend_data['avg_value']) if metric == 'sqale_index'
+                        else f"{trend_data['avg_value']:.2f}"
+                    )
+                    
+                    st.markdown(f"""
+                        <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
+                            <div style='font-size: 0.9rem; color: #A0AEC0;'>Current Trend</div>
+                            <div style='font-size: 1.2rem; margin: 0.5rem 0; color: #FAFAFA;'>{trend_emoji} {trend_data['trend'].title()}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current value: {current_value}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Average value: {avg_value}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    change = period_comparison['change_percentage']
+                    is_improvement = (
+                        change > 0 if metric == 'ncloc'
+                        else change < 0 if metric == 'sqale_index'
+                        else period_comparison['improved']
+                    )
+                    change_color = "#48BB78" if is_improvement else "#F56565"
+                    
+                    current_period = (
+                        format_code_lines(period_comparison['current_period_avg']) if metric == 'ncloc'
+                        else format_technical_debt(period_comparison['current_period_avg']) if metric == 'sqale_index'
+                        else f"{period_comparison['current_period_avg']:.2f}"
+                    )
+                    previous_period = (
+                        format_code_lines(period_comparison['previous_period_avg']) if metric == 'ncloc'
+                        else format_technical_debt(period_comparison['previous_period_avg']) if metric == 'sqale_index'
+                        else f"{period_comparison['previous_period_avg']:.2f}"
+                    )
+                    
+                    st.markdown(f"""
+                        <div style='background-color: #1A1F25; padding: 1rem; border-radius: 0.5rem; border: 1px solid #2D3748; box-shadow: 0 1px 3px rgba(0,0,0,0.24);'>
+                            <div style='font-size: 0.9rem; color: #A0AEC0;'>7-Day Comparison</div>
+                            <div style='font-size: 1.2rem; margin: 0.5rem 0; color: {change_color};'>{change:+.1f}%</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Current period avg: {current_period}</div>
+                            <div style='font-size: 0.9rem; color: #CBD5E0;'>Previous period avg: {previous_period}</div>
+                        </div>
+                    """, unsafe_allow_html=True)

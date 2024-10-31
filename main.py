@@ -6,14 +6,14 @@ from services.scheduler import SchedulerService
 from services.report_generator import ReportGenerator
 from services.notification_service import NotificationService
 from services.metrics_updater import update_entity_metrics
-from components.metrics_display import display_current_metrics, create_download_report, display_multi_project_metrics
+from components.metrics_display import display_current_metrics, create_download_report, display_metric_trends, display_multi_project_metrics
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
 from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
 from database.schema import initialize_database, get_update_preferences
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 import requests
 
 logging.basicConfig(
@@ -34,7 +34,7 @@ def register_repository_jobs():
         registered_count = 0
         failed_count = 0
         
-        logger.info(f"[{datetime.now(timezone.utc)}] Starting automatic job registration for {len(all_projects)} repositories")
+        logger.info(f"[{datetime.now()}] Starting automatic job registration for {len(all_projects)} repositories")
         
         for project in all_projects:
             if project['is_active']:
@@ -319,7 +319,7 @@ def main():
                 if projects_data:
                     display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
-                    create_download_report(projects_data, include_inactive=show_inactive)
+                    create_download_report(projects_data)
             
             elif selected_project:
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
@@ -351,7 +351,8 @@ def main():
                             historical_data = metrics_processor.get_historical_data(selected_project)
                             if historical_data:
                                 plot_metrics_history(historical_data)
-                                create_download_report(historical_data, include_inactive=True)
+                                display_metric_trends(historical_data)
+                                create_download_report(historical_data)
                     else:
                         st.error(f"Failed to fetch metrics: {str(e)}")
                 
@@ -365,7 +366,8 @@ def main():
                     historical_data = metrics_processor.get_historical_data(selected_project)
                     if historical_data:
                         plot_metrics_history(historical_data)
-                        create_download_report(historical_data, include_inactive=False)
+                        display_metric_trends(historical_data)
+                        create_download_report(historical_data)
 
                 if selected_project != 'all' and not is_inactive:
                     st.sidebar.markdown("---")
