@@ -418,7 +418,8 @@ def display_metric_trends(historical_data):
         
     # Convert historical data to DataFrame with UTC timestamps
     df = pd.DataFrame(historical_data)
-    df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC')
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = df['timestamp'].dt.tz_convert('UTC')
     df = df.sort_values('timestamp')
     
     metrics = {
