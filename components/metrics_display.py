@@ -416,25 +416,27 @@ def display_metric_trends(historical_data):
         st.warning("No historical data available for trend analysis")
         return
         
-    # Convert historical data to DataFrame
+    # Convert historical data to DataFrame with UTC timestamps
     df = pd.DataFrame(historical_data)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC')
     df = df.sort_values('timestamp')
     
     metrics = {
-        'bugs': '🐛 Bugs',
-        'vulnerabilities': '⚠️ Vulnerabilities',
-        'code_smells': '🔧 Code Smells',
-        'coverage': '📊 Test Coverage',
-        'duplicated_lines_density': '📝 Code Duplication',
-        'ncloc': '📏 Lines of Code',
-        'sqale_index': '⏱️ Technical Debt'
+        'bugs': {'name': '🐛 Bugs', 'improvement': 'decrease'},
+        'vulnerabilities': {'name': '⚠️ Vulnerabilities', 'improvement': 'decrease'},
+        'code_smells': {'name': '🔧 Code Smells', 'improvement': 'decrease'},
+        'coverage': {'name': '📊 Test Coverage', 'improvement': 'increase'},
+        'duplicated_lines_density': {'name': '📝 Code Duplication', 'improvement': 'decrease'},
+        'ncloc': {'name': '📏 Lines of Code', 'improvement': 'neutral'},
+        'sqale_index': {'name': '⏱️ Technical Debt', 'improvement': 'decrease'}
     }
     
-    analyzer = MetricAnalyzer()
-    
-    for metric, display_name in metrics.items():
-        with st.expander(f"{display_name} Analysis", expanded=True):
+    for metric, info in metrics.items():
+        with st.expander(f"{info['name']} Analysis", expanded=True):
+            if metric not in df.columns:
+                st.warning(f"No data available for {info['name']}")
+                continue
+                
             col1, col2 = st.columns([2, 1])
             
             with col1:
@@ -446,7 +448,7 @@ def display_metric_trends(historical_data):
                     go.Scatter(
                         x=df['timestamp'],
                         y=df[metric],
-                        name=display_name,
+                        name=info['name'],
                         line=dict(color="#4299E1", width=2)
                     )
                 )
@@ -475,6 +477,16 @@ def display_metric_trends(historical_data):
                     legend=dict(
                         bgcolor="rgba(0,0,0,0)",
                         bordercolor="rgba(0,0,0,0)"
+                    ),
+                    xaxis=dict(
+                        title="Date (UTC)",
+                        gridcolor="#2D3748",
+                        showgrid=True
+                    ),
+                    yaxis=dict(
+                        title=info['name'],
+                        gridcolor="#2D3748",
+                        showgrid=True
                     )
                 )
                 
@@ -493,17 +505,47 @@ def display_metric_trends(historical_data):
                     week_change = ((latest_value - week_ago) / week_ago * 100) if week_ago and week_ago != 0 else None
                     month_change = ((latest_value - month_ago) / month_ago * 100) if month_ago and month_ago != 0 else None
                     
+                    # Format display values based on metric type
+                    if metric == 'ncloc':
+                        current_value = format_code_lines(latest_value)
+                        prev_value_display = format_code_lines(prev_value)
+                    elif metric == 'sqale_index':
+                        current_value = format_technical_debt(latest_value)
+                        prev_value_display = format_technical_debt(prev_value)
+                    else:
+                        current_value = f"{latest_value:.1f}"
+                        prev_value_display = f"{prev_value:.1f}"
+                    
+                    # Display current value
+                    st.markdown(f"""
+                        <div style='background: #2D3748; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;'>
+                            <div style='color: #A0AEC0;'>Current Value</div>
+                            <div style='font-size: 1.5rem; color: #FAFAFA;'>
+                                {current_value}
+                            </div>
+                            <div style='color: #A0AEC0;'>Previous: {prev_value_display}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
                     # Display trend indicators
-                    st.markdown("### Trend Indicators")
+                    def get_trend_color(change, improvement_direction):
+                        if improvement_direction == 'neutral':
+                            return "#A0AEC0"
+                        elif improvement_direction == 'decrease':
+                            return "#48BB78" if change < 0 else "#F56565"
+                        else:  # increase
+                            return "#48BB78" if change > 0 else "#F56565"
+                    
+                    def get_trend_icon(change):
+                        return "📈" if change > 0 else "📉" if change < 0 else "➡️"
                     
                     # Latest change
-                    trend_icon = "📈" if latest_change > 0 else "📉" if latest_change < 0 else "➡️"
-                    color = "red" if (metric in ['bugs', 'vulnerabilities', 'code_smells', 'sqale_index', 'duplicated_lines_density'] and latest_change > 0) or \
-                           (metric in ['coverage'] and latest_change < 0) else "green"
+                    trend_color = get_trend_color(latest_change, info['improvement'])
+                    trend_icon = get_trend_icon(latest_change)
                     st.markdown(f"""
                         <div style='background: #2D3748; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;'>
                             <div style='color: #A0AEC0;'>Latest Change</div>
-                            <div style='font-size: 1.2rem; color: {color};'>
+                            <div style='font-size: 1.2rem; color: {trend_color};'>
                                 {trend_icon} {abs(latest_change):.1f}%
                             </div>
                         </div>
@@ -511,13 +553,12 @@ def display_metric_trends(historical_data):
                     
                     # Weekly change
                     if week_change is not None:
-                        color = "red" if (metric in ['bugs', 'vulnerabilities', 'code_smells', 'sqale_index', 'duplicated_lines_density'] and week_change > 0) or \
-                               (metric in ['coverage'] and week_change < 0) else "green"
-                        trend_icon = "📈" if week_change > 0 else "📉" if week_change < 0 else "➡️"
+                        trend_color = get_trend_color(week_change, info['improvement'])
+                        trend_icon = get_trend_icon(week_change)
                         st.markdown(f"""
                             <div style='background: #2D3748; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;'>
                                 <div style='color: #A0AEC0;'>7-Day Change</div>
-                                <div style='font-size: 1.2rem; color: {color};'>
+                                <div style='font-size: 1.2rem; color: {trend_color};'>
                                     {trend_icon} {abs(week_change):.1f}%
                                 </div>
                             </div>
@@ -525,13 +566,12 @@ def display_metric_trends(historical_data):
                     
                     # Monthly change
                     if month_change is not None:
-                        color = "red" if (metric in ['bugs', 'vulnerabilities', 'code_smells', 'sqale_index', 'duplicated_lines_density'] and month_change > 0) or \
-                               (metric in ['coverage'] and month_change < 0) else "green"
-                        trend_icon = "📈" if month_change > 0 else "📉" if month_change < 0 else "➡️"
+                        trend_color = get_trend_color(month_change, info['improvement'])
+                        trend_icon = get_trend_icon(month_change)
                         st.markdown(f"""
                             <div style='background: #2D3748; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;'>
                                 <div style='color: #A0AEC0;'>30-Day Change</div>
-                                <div style='font-size: 1.2rem; color: {color};'>
+                                <div style='font-size: 1.2rem; color: {trend_color};'>
                                     {trend_icon} {abs(month_change):.1f}%
                                 </div>
                             </div>
@@ -539,18 +579,19 @@ def display_metric_trends(historical_data):
                     
                     # Add summary analysis
                     st.markdown("### Summary")
-                    if metric in ['bugs', 'vulnerabilities', 'code_smells', 'sqale_index', 'duplicated_lines_density']:
-                        status = "improving" if latest_change < 0 else "deteriorating" if latest_change > 0 else "stable"
-                    else:
-                        status = "improving" if latest_change > 0 else "deteriorating" if latest_change < 0 else "stable"
-                    
-                    st.markdown(f"""
-                        <div style='background: #2D3748; padding: 1rem; border-radius: 0.5rem;'>
-                            <div style='color: #FAFAFA;'>
-                                Metric is <span style='color: {"#48BB78" if status == "improving" else "#F56565" if status == "deteriorating" else "#A0AEC0"};'>
-                                    {status}</span> based on recent trends
+                    if info['improvement'] != 'neutral':
+                        status = "improving" if (
+                            (info['improvement'] == 'decrease' and latest_change < 0) or
+                            (info['improvement'] == 'increase' and latest_change > 0)
+                        ) else "deteriorating" if latest_change != 0 else "stable"
+                        
+                        st.markdown(f"""
+                            <div style='background: #2D3748; padding: 1rem; border-radius: 0.5rem;'>
+                                <div style='color: #FAFAFA;'>
+                                    Metric is <span style='color: {"#48BB78" if status == "improving" else "#F56565" if status == "deteriorating" else "#A0AEC0"};'>
+                                        {status}</span> based on recent trends
+                                </div>
                             </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
                 else:
                     st.info("Not enough historical data for trend analysis")
