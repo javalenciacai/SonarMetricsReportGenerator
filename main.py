@@ -9,7 +9,7 @@ from services.metrics_updater import update_entity_metrics
 from components.metrics_display import (
     display_current_metrics, create_download_report, 
     display_metric_trends, display_multi_project_metrics,
-    plot_all_projects_trends
+    format_update_interval, format_last_update
 )
 from components.visualizations import plot_metrics_history, plot_multi_project_comparison
 from components.policy_display import show_policies, get_policy_acceptance_status
@@ -229,8 +229,7 @@ def main():
                 projects_data = update_all_projects_data(sonar_api, metrics_processor)
                 
                 if projects_data:
-                    display_multi_project_metrics(projects_data, metrics_processor)
-                    plot_all_projects_trends(projects_data, metrics_processor)
+                    display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
                     create_download_report(projects_data)
                 else:
