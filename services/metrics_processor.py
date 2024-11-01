@@ -1,6 +1,6 @@
 import pandas as pd
 from database.connection import execute_query
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from database.schema import (
     mark_project_for_deletion,
     unmark_project_for_deletion,
@@ -188,37 +188,6 @@ class MetricsProcessor:
                 logger.debug(f"Retrieved {len(result)} historical records for {repo_key}")
                 return [dict(row) for row in result]
             logger.debug(f"No historical data found for repository {repo_key}")
-            return []
-        except Exception as e:
-            logger.error(f"Error retrieving historical data for {repo_key}: {str(e)}")
-            return []
-            
-    @staticmethod
-    def get_historical_data_by_date_range(repo_key, start_date, end_date):
-        """Get historical metrics data for a specific project within a date range"""
-        query = """
-        SELECT 
-            m.bugs, 
-            m.vulnerabilities, 
-            m.code_smells, 
-            m.coverage, 
-            m.duplicated_lines_density,
-            m.ncloc,
-            m.sqale_index,
-            m.timestamp::text as timestamp
-        FROM metrics m
-        JOIN repositories r ON r.id = m.repository_id
-        WHERE r.repo_key = %s
-        AND m.timestamp::date BETWEEN %s AND %s
-        ORDER BY m.timestamp DESC;
-        """
-        try:
-            logger.debug(f"Retrieving historical data for repository {repo_key} between {start_date} and {end_date}")
-            result = execute_query(query, (repo_key, start_date, end_date))
-            if result:
-                logger.debug(f"Retrieved {len(result)} historical records for {repo_key}")
-                return [dict(row) for row in result]
-            logger.debug(f"No historical data found for repository {repo_key} in the specified date range")
             return []
         except Exception as e:
             logger.error(f"Error retrieving historical data for {repo_key}: {str(e)}")

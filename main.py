@@ -17,7 +17,7 @@ from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
 from database.schema import initialize_database, get_update_preferences
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import requests
 
 # Configure logging
@@ -27,24 +27,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_default_date_range():
-    """Get default date range (last 30 days)"""
-    end_date = datetime.now(timezone.utc).date()
-    start_date = end_date - timedelta(days=30)
-    return start_date, end_date
-
-def filter_metrics_by_date(metrics_data, start_date, end_date):
-    """Filter metrics data based on date range"""
-    filtered_data = {}
-    for project_key, project_data in metrics_data.items():
-        if 'timestamp' in project_data:
-            metric_date = datetime.fromisoformat(project_data['timestamp'].replace('Z', '+00:00')).date()
-            if start_date <= metric_date <= end_date:
-                filtered_data[project_key] = project_data
-    return filtered_data
-
-def update_all_projects_data(sonar_api, metrics_processor, start_date=None, end_date=None):
-    """Update metrics for all projects from SonarCloud with date filtering"""
+def update_all_projects_data(sonar_api, metrics_processor):
+    """Update metrics for all projects from SonarCloud"""
     logger.info("Starting update for all projects")
     
     # Get all SonarCloud projects first
@@ -70,8 +54,7 @@ def update_all_projects_data(sonar_api, metrics_processor, start_date=None, end_
                     updated_projects[project_key] = {
                         'name': project_name,
                         'metrics': metrics_dict,
-                        'is_active': True,
-                        'timestamp': datetime.now(timezone.utc).isoformat()
+                        'is_active': True
                     }
                     logger.info(f"Updated metrics for project: {project_key}")
             else:
@@ -103,13 +86,8 @@ def update_all_projects_data(sonar_api, metrics_processor, start_date=None, end_
                     'name': project['name'],
                     'metrics': metrics_dict,
                     'is_active': False,
-                    'is_marked_for_deletion': project.get('is_marked_for_deletion', False),
-                    'timestamp': latest_metrics.get('timestamp')
+                    'is_marked_for_deletion': project.get('is_marked_for_deletion', False)
                 }
-    
-    # Apply date filtering if dates are provided
-    if start_date and end_date:
-        updated_projects = filter_metrics_by_date(updated_projects, start_date, end_date)
     
     return updated_projects
 
@@ -132,9 +110,6 @@ def main():
             st.session_state.show_inactive_projects = True
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
-            default_start, default_end = get_default_date_range()
-            st.session_state.start_date = default_start
-            st.session_state.end_date = default_end
 
         initialize_database()
         
@@ -231,26 +206,10 @@ def main():
                         "Show Inactive Projects",
                         value=st.session_state.show_inactive_projects
                     )
-                    
-                    # Add date range selection
-                    st.markdown("### 📅 Date Range")
-                    start_date = st.date_input(
-                        "Start Date",
-                        value=st.session_state.start_date,
-                        key="start_date"
-                    )
-                    end_date = st.date_input(
-                        "End Date",
-                        value=st.session_state.end_date,
-                        key="end_date"
-                    )
-                    
                     apply_filter = st.form_submit_button("Apply Filter")
                     
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
-                        st.session_state.start_date = start_date
-                        st.session_state.end_date = end_date
 
             # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
@@ -267,19 +226,14 @@ def main():
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-                projects_data = update_all_projects_data(
-                    sonar_api, 
-                    metrics_processor,
-                    st.session_state.start_date,
-                    st.session_state.end_date
-                )
+                projects_data = update_all_projects_data(sonar_api, metrics_processor)
                 
                 if projects_data:
                     display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
                     create_download_report(projects_data)
                 else:
-                    st.info("No projects data available for the selected date range")
+                    st.info("No projects data available")
             
             elif selected_project:
                 project_info = project_status.get(selected_project, {})
