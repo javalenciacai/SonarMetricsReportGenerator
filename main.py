@@ -241,35 +241,37 @@ def main():
                 
                 is_inactive = not project_info.get('is_active', True)
                 
-                if is_inactive:
-                    project_data = metrics_processor.get_latest_metrics(selected_project)
-                    if project_data:
-                        metrics_dict = {k: float(v) for k, v in project_data.items() 
-                                    if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
-                        display_current_metrics(metrics_dict)
-                        
-                        historical_data = metrics_processor.get_historical_data(selected_project)
-                        if historical_data:
-                            plot_metrics_history(historical_data)
-                            display_metric_trends(historical_data)
-                            create_download_report({selected_project: {
-                                'name': project_info['name'],
-                                'metrics': metrics_dict
-                            }})
-                else:
-                    try:
-                        metrics = sonar_api.get_project_metrics(selected_project)
-                        if metrics:
-                            metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                # Create tabs for Current Metrics and Trend Analysis
+                current_tab, trends_tab = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
+                
+                with current_tab:
+                    if is_inactive:
+                        project_data = metrics_processor.get_latest_metrics(selected_project)
+                        if project_data:
+                            metrics_dict = {k: float(v) for k, v in project_data.items() 
+                                        if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
                             display_current_metrics(metrics_dict)
-                            create_download_report({selected_project: {
-                                'name': project_info['name'],
-                                'metrics': metrics_dict
-                            }})
-                        else:
-                            st.warning("No metrics available for this project")
-                    except Exception as e:
-                        st.error(f"Error displaying project data: {str(e)}")
+                    else:
+                        try:
+                            metrics = sonar_api.get_project_metrics(selected_project)
+                            if metrics:
+                                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                                display_current_metrics(metrics_dict)
+                                create_download_report({selected_project: {
+                                    'name': project_info['name'],
+                                    'metrics': metrics_dict
+                                }})
+                            else:
+                                st.warning("No metrics available for this project")
+                        except Exception as e:
+                            st.error(f"Error displaying project data: {str(e)}")
+
+                with trends_tab:
+                    historical_data = metrics_processor.get_historical_data(selected_project)
+                    if historical_data:
+                        display_metric_trends(historical_data)
+                    else:
+                        st.info("No historical data available for trend analysis")
 
                 if selected_project != 'all' and not is_inactive:
                     st.sidebar.markdown("---")
