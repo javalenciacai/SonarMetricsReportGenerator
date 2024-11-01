@@ -4,7 +4,7 @@ from services.metric_analyzer import MetricAnalyzer
 from utils.helpers import format_code_lines, format_technical_debt
 from database.schema import get_update_preferences
 from database.connection import execute_query
-from datetime import datetime
+from datetime import datetime, timezone
 
 def format_update_interval(seconds):
     """Format update interval in a human-readable way"""
@@ -24,7 +24,10 @@ def format_last_update(timestamp):
     try:
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        now = datetime.now()
+        if not timestamp.tzinfo:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
         diff = now - timestamp
         
         if diff.days > 0:
@@ -41,7 +44,7 @@ def format_last_update(timestamp):
 def get_last_update_timestamp(project_key):
     """Get the latest timestamp from metrics table for a project"""
     query = """
-    SELECT m.timestamp
+    SELECT m.timestamp AT TIME ZONE 'UTC'
     FROM metrics m
     JOIN repositories r ON r.id = m.repository_id
     WHERE r.repo_key = %s
@@ -137,56 +140,100 @@ def display_multi_project_metrics(projects_data):
             align-items: center;
             gap: 0.5rem;
         }
+        .project-status {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+        .status-active {
+            background: #2F855A;
+            color: #FAFAFA;
+        }
+        .status-inactive {
+            background: #C53030;
+            color: #FAFAFA;
+        }
         </style>
     """, unsafe_allow_html=True)
     
     analyzer = MetricAnalyzer()
     
+    # Calculate total metrics including all projects
+    total_metrics = {
+        'ncloc': 0,
+        'bugs': 0,
+        'vulnerabilities': 0,
+        'code_smells': 0,
+        'sqale_index': 0
+    }
+    
+    # Process all projects and calculate totals
     metrics_list = []
     for project_key, data in projects_data.items():
         metrics = data['metrics']
         metrics['project_key'] = project_key
         metrics['project_name'] = data['name']
+        metrics['is_active'] = data.get('is_active', True)
+        metrics['is_marked_for_deletion'] = data.get('is_marked_for_deletion', False)
         metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
         
-        # Get update interval directly from repositories table
+        # Get update interval and last update
         metrics['update_interval'] = get_project_update_interval(project_key)
-        
-        # Get last update timestamp from metrics table
         metrics['last_update'] = get_last_update_timestamp(project_key)
+        
+        # Add to totals
+        for metric in total_metrics.keys():
+            if metric in metrics:
+                total_metrics[metric] += float(metrics[metric])
         
         metrics_list.append(metrics)
     
-    df = pd.DataFrame(metrics_list)
-    
-    total_lines = df['ncloc'].sum()
-    total_debt = df['sqale_index'].sum()
-    
+    # Display organization totals
     st.markdown(f"""
         <div class="totals-card">
             <h3 style="color: #FAFAFA;">📊 Organization Totals</h3>
             <div class="metric-grid">
                 <div class="metric-item">
                     <div class="metric-title">Total Lines of Code</div>
-                    <div class="metric-value">{format_code_lines(total_lines)} 📏</div>
+                    <div class="metric-value">{format_code_lines(total_metrics['ncloc'])} 📏</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-title">Total Technical Debt</div>
-                    <div class="metric-value">{format_technical_debt(total_debt)} ⏱️</div>
+                    <div class="metric-value">{format_technical_debt(total_metrics['sqale_index'])} ⏱️</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-title">Total Issues</div>
+                    <div class="metric-value">
+                        🐛 {int(total_metrics['bugs'])} 
+                        ⚠️ {int(total_metrics['vulnerabilities'])} 
+                        🔧 {int(total_metrics['code_smells'])}
+                    </div>
                 </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
     
+    # Sort projects by quality score
+    df = pd.DataFrame(metrics_list)
     df = df.sort_values('quality_score', ascending=False)
     
+    # Display individual project cards
     for _, row in df.iterrows():
+        status_icon = "🗑️" if row['is_marked_for_deletion'] else "⚠️" if not row['is_active'] else "✅"
+        status_class = "status-active" if row['is_active'] else "status-inactive"
+        status_text = "Active" if row['is_active'] else "Inactive"
+        
         interval_display = format_update_interval(row['update_interval'])
         last_update_display = format_last_update(row['last_update'])
         
         st.markdown(f"""
             <div class="project-card">
-                <h3 style="color: #FAFAFA;">{row['project_name']}</h3>
+                <h3 style="color: #FAFAFA;">
+                    {status_icon} {row['project_name']}
+                    <span class="project-status {status_class}">{status_text}</span>
+                </h3>
                 <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
                 <div class="update-interval">
                     <span>⏱️ Update interval: {interval_display}</span>

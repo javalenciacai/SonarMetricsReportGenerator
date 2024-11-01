@@ -1,8 +1,7 @@
 import requests
-import streamlit as st
-from config import SONARCLOUD_API_URL
 import json
 import logging
+from config import SONARCLOUD_API_URL
 
 class SonarCloudAPI:
     def __init__(self, token):
@@ -13,7 +12,7 @@ class SonarCloudAPI:
         }
         self.organization = None
         self.api_version = None
-        self.debug_mode = True  # Enable debug mode for troubleshooting
+        self.debug_mode = True
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
 
@@ -25,12 +24,30 @@ class SonarCloudAPI:
             if response:
                 self.logger.debug(f"Status Code: {response.status_code}")
                 try:
-                    self.logger.debug(f"Response: {response.json()}")
-                except:
-                    if hasattr(response, 'text'):
-                        self.logger.debug(f"Raw Response: {response.text}")
-                    else:
-                        self.logger.debug("No response content available")
+                    response_data = response.json() if response.content else "No content"
+                    self.logger.debug(f"Response: {json.dumps(response_data, indent=2)}")
+                except json.JSONDecodeError:
+                    self.logger.debug(f"Raw Response: {response.text}")
+                except Exception as e:
+                    self.logger.debug(f"Error parsing response: {str(e)}")
+
+    def _validate_response(self, response, expected_keys=None):
+        """Validate API response format and content"""
+        try:
+            if not response.content:
+                return False, "Empty response from API"
+            
+            data = response.json()
+            if expected_keys:
+                missing_keys = [key for key in expected_keys if key not in data]
+                if missing_keys:
+                    return False, f"Missing expected keys in response: {missing_keys}"
+            
+            return True, data
+        except json.JSONDecodeError:
+            return False, f"Invalid JSON response: {response.text}"
+        except Exception as e:
+            return False, f"Error validating response: {str(e)}"
 
     def _check_api_version(self):
         """Check SonarCloud API version compatibility"""
@@ -43,7 +60,7 @@ class SonarCloudAPI:
             return True
         except requests.exceptions.RequestException as e:
             error_msg = f"Error checking API version: {str(e)}"
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            if hasattr(e, 'response'):
                 self.logger.error(f"{error_msg}\nAPI Response: {e.response.text}")
             return False
 
@@ -63,8 +80,12 @@ class SonarCloudAPI:
                 return False, "Invalid token. Please check your SonarCloud token."
             
             response.raise_for_status()
-            orgs = response.json().get('organizations', [])
+            is_valid, data = self._validate_response(response, ['organizations'])
             
+            if not is_valid:
+                return False, data
+            
+            orgs = data.get('organizations', [])
             if not orgs:
                 return False, "No organizations found for this token"
             
@@ -74,21 +95,21 @@ class SonarCloudAPI:
         except requests.exceptions.RequestException as e:
             error_message = "Failed to validate token. Please check your connection and try again."
             self.logger.error(f"Token validation error: {str(e)}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            if hasattr(e, 'response'):
                 self.logger.error(f"API Response: {e.response.text}")
             return False, error_message
 
     def get_projects(self):
         """Get all projects for the current organization"""
         if not self.organization:
-            st.error("Organization not set. Please validate your token first.")
+            self.logger.error("Organization not set. Please validate your token first.")
             return []
         
         url = f"{SONARCLOUD_API_URL}/projects/search"
         params = {
             'organization': self.organization,
-            'ps': 100,  # Number of projects per page
-            'analyzed': 'true'  # Only return analyzed projects
+            'ps': 100,
+            'analyzed': 'true'
         }
         
         try:
@@ -96,32 +117,25 @@ class SonarCloudAPI:
             self._log_request("GET", url, params, response)
             
             response.raise_for_status()
-            data = response.json()
+            is_valid, data = self._validate_response(response, ['components'])
             
-            if 'components' not in data:
-                error_msg = "Unexpected API response format"
-                self.logger.error(f"{error_msg}: {data}")
+            if not is_valid:
+                self.logger.error(f"Invalid API response: {data}")
                 return []
-                
+            
             return data['components']
             
         except requests.exceptions.RequestException as e:
-            error_message = "Failed to fetch projects"
-            self.logger.error(f"{error_message}: {str(e)}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            error_message = f"Failed to fetch projects: {str(e)}"
+            self.logger.error(error_message)
+            if hasattr(e, 'response'):
                 self.logger.error(f"API Response: {e.response.text}")
-            st.error(error_message)
-            return []
-        except (KeyError, json.JSONDecodeError) as e:
-            error_msg = "Error parsing project data"
-            self.logger.error(f"{error_msg}: {str(e)}")
-            st.error(error_msg)
             return []
 
     def get_project_metrics(self, project_key):
         """Get metrics for a specific project"""
         if not self.organization:
-            st.error("Organization not set. Please validate your token first.")
+            self.logger.error("Organization not set. Please validate your token first.")
             return []
 
         metrics = [
@@ -134,7 +148,7 @@ class SonarCloudAPI:
             'reliability_rating',
             'security_rating',
             'sqale_rating',
-            'sqale_index'  # Added technical debt metric
+            'sqale_index'
         ]
         
         url = f"{SONARCLOUD_API_URL}/measures/component"
@@ -150,63 +164,35 @@ class SonarCloudAPI:
             self._log_request("GET", url, params, response)
             
             if response.status_code == 404:
-                # Project not found or no longer exists
                 error_msg = f"Project '{project_key}' not found or no longer exists in SonarCloud"
                 self.logger.error(error_msg)
                 raise requests.exceptions.HTTPError(error_msg, response=response)
             
             response.raise_for_status()
-            component_data = response.json().get('component', {})
+            is_valid, data = self._validate_response(response, ['component'])
             
-            if not component_data:
-                error_msg = f"No data found for project {project_key}"
-                self.logger.error(error_msg)
+            if not is_valid:
+                self.logger.error(f"Invalid API response: {data}")
                 return []
-                
-            return component_data.get('measures', [])
+            
+            component_data = data.get('component', {})
+            measures = component_data.get('measures', [])
+            
+            if not measures:
+                self.logger.warning(f"No metrics found for project {project_key}")
+                return []
+            
+            return measures
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                # Let the caller handle the 404 case
                 raise
-            error_message = "Failed to fetch metrics"
-            self.logger.error(f"{error_message}: {str(e)}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            error_message = f"Failed to fetch metrics: {str(e)}"
+            self.logger.error(error_message)
+            if hasattr(e, 'response'):
                 self.logger.error(f"API Response: {e.response.text}")
-            st.error(error_message)
             return []
-        except requests.exceptions.RequestException as e:
-            error_message = "Failed to fetch metrics"
-            self.logger.error(f"{error_message}: {str(e)}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                self.logger.error(f"API Response: {e.response.text}")
-            st.error(error_message)
-            return []
-        except (KeyError, json.JSONDecodeError) as e:
-            error_msg = "Error parsing metric data"
-            self.logger.error(f"{error_msg}: {str(e)}")
-            st.error(error_msg)
-            return []
-
-    def get_project_branches(self, project_key):
-        """Get all branches for a specific project"""
-        url = f"{SONARCLOUD_API_URL}/project_branches/list"
-        params = {
-            'project': project_key,
-            'organization': self.organization
-        }
-        
-        try:
-            response = requests.get(url, headers=self.headers, params=params)
-            self._log_request("GET", url, params, response)
-            
-            response.raise_for_status()
-            return response.json().get('branches', [])
-            
-        except requests.exceptions.RequestException as e:
-            error_message = "Failed to fetch project branches"
-            self.logger.error(f"{error_message}: {str(e)}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                self.logger.error(f"API Response: {e.response.text}")
-            st.error(error_message)
+        except Exception as e:
+            error_message = f"Error fetching metrics: {str(e)}"
+            self.logger.error(error_message)
             return []

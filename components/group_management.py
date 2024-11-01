@@ -2,6 +2,7 @@ import streamlit as st
 from database.schema import (
     create_project_group,
     get_project_groups,
+    get_projects_in_group,
     assign_project_to_group,
     remove_project_from_group,
     delete_project_group

@@ -1,14 +1,7 @@
 [server]
 headless = true
 address = "0.0.0.0"
-port = 5000
+port = 5010
 
-[theme]
-primaryColor = "#FF4B4B"  # SonarCloud red
-backgroundColor = "#0E1117"  # Dark background
-secondaryBackgroundColor = "#1A1F25"  # Slightly lighter dark
-textColor = "#FAFAFA"  # Light text for dark mode
-font = "sans serif"
-
-[deprecation]
-showPyplotGlobalUse = false
+[general]
+timezone = "UTC"

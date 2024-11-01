@@ -1,6 +1,11 @@
 import streamlit as st
 from database.schema import store_update_preferences, get_update_preferences
+import logging
 from services.metrics_updater import update_entity_metrics
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def get_interval_options():
     """Get available update interval options"""
@@ -57,21 +62,28 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
                 
                 # Store preferences using the entity_id directly
                 if store_update_preferences(entity_type, entity_id, interval_seconds):
-                    scheduler_service.schedule_metrics_update(
-                        update_entity_metrics,
-                        entity_type,
-                        entity_id,
-                        interval_seconds
-                    )
-                    st.success("✅ Update interval changed successfully")
+                    # Schedule metrics update with proper error handling
+                    try:
+                        scheduler_service.schedule_metrics_update(
+                            update_entity_metrics,
+                            entity_type,
+                            entity_id,
+                            interval_seconds
+                        )
+                        st.success("✅ Update interval changed successfully")
+                        logger.info(f"Update interval changed for {entity_type} {entity_id} to {interval_seconds} seconds")
+                    except Exception as e:
+                        logger.error(f"Failed to schedule metrics update: {str(e)}")
+                        st.error(f"❌ Failed to schedule update: {str(e)}")
                 else:
-                    if entity_type == 'repository':
-                        st.error("❌ Failed to update interval settings: Project not found")
-                    else:
-                        st.error("❌ Failed to update interval settings: Group not found")
+                    error_msg = "Project not found" if entity_type == 'repository' else "Group not found"
+                    logger.error(f"Failed to update interval settings: {error_msg}")
+                    st.error(f"❌ Failed to update interval settings: {error_msg}")
             except ValueError as e:
+                logger.error(f"Invalid input: {str(e)}")
                 st.error(f"❌ Invalid input: {str(e)}")
             except Exception as e:
+                logger.error(f"Error updating settings: {str(e)}")
                 st.error(f"❌ Error updating settings: {str(e)}")
     
     if last_update:
