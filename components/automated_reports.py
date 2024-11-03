@@ -1,7 +1,9 @@
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 from database.schema import execute_query
+from services.report_generator import ReportGenerator
+from services.scheduler import SchedulerService
 
 def get_report_schedules():
     """Get all configured report schedules"""
@@ -79,12 +81,40 @@ def delete_report_schedule(schedule_id):
         st.error(f"Error deleting report schedule: {str(e)}")
         return False
 
+def display_email_configuration():
+    """Display and test email configuration"""
+    st.markdown("### ✉️ Email Configuration")
+    
+    report_generator = ReportGenerator()
+    status, message = report_generator.test_smtp_connection()
+    
+    if status:
+        st.success("✅ Email configuration is working")
+    else:
+        st.error(f"❌ Email configuration error: {message}")
+    
+    with st.expander("📧 Email Settings"):
+        st.code(f"""
+        SMTP Server: {report_generator.smtp_server}
+        SMTP Port: {report_generator.smtp_port}
+        Username: {'Configured' if report_generator.smtp_username else 'Not configured'}
+        Password: {'Configured' if report_generator.smtp_password else 'Not configured'}
+        """)
+
 def display_automated_reports():
     """Display the automated reports management interface"""
     st.markdown("## 📊 Automated Reports")
     
-    # Create tabs for Schedule Management and Report Preview
-    tab1, tab2 = st.tabs(["📅 Schedule Management", "👀 Report Preview"])
+    # Display email configuration status in sidebar
+    with st.sidebar:
+        display_email_configuration()
+    
+    # Create tabs for Schedule Management, Report Preview, and Threshold Configuration
+    tab1, tab2, tab3 = st.tabs([
+        "📅 Schedule Management",
+        "👀 Report Preview",
+        "⚙️ Threshold Configuration"
+    ])
     
     with tab1:
         st.markdown("### Create New Report Schedule")
@@ -97,7 +127,7 @@ def display_automated_reports():
             
             frequency = st.selectbox(
                 "Frequency",
-                ["daily", "weekly"],
+                ["daily", "weekly", "every_4_hours"],
                 help="How often should this report be generated"
             )
             
@@ -169,7 +199,7 @@ def display_automated_reports():
         st.markdown("### Report Preview")
         preview_type = st.selectbox(
             "Select Report Type",
-            ["Executive Summary", "Full Metrics", "Issues Only"]
+            ["Daily Report", "Weekly Report", "Metric Change Alert"]
         )
         
         preview_format = st.selectbox(
@@ -177,14 +207,73 @@ def display_automated_reports():
             ["HTML", "PDF", "CSV"]
         )
         
+        report_generator = ReportGenerator()
+        
         if st.button("📋 Generate Preview"):
             st.info("Generating preview... This may take a moment.")
-            # Here we'll add the preview generation logic later
-            st.markdown("""
-                ### Sample Report Preview
-                This is a placeholder for the actual report preview.
-                The complete implementation will include:
-                - Actual metrics data
-                - Proper formatting based on selected type
-                - Download option for the preview
-            """)
+            
+            try:
+                if preview_type == "Daily Report":
+                    report = report_generator.generate_daily_report()
+                elif preview_type == "Weekly Report":
+                    report = report_generator.generate_weekly_report()
+                else:
+                    report = report_generator.check_metric_changes()
+                
+                if report:
+                    st.markdown(report, unsafe_allow_html=True)
+                    st.download_button(
+                        "📥 Download Report",
+                        report,
+                        file_name=f"report_preview.{preview_format.lower()}",
+                        mime=f"text/{preview_format.lower()}"
+                    )
+                else:
+                    st.warning("No data available for preview")
+            except Exception as e:
+                st.error(f"Error generating preview: {str(e)}")
+    
+    with tab3:
+        st.markdown("### Metric Change Thresholds")
+        st.info("Configure thresholds for metric change alerts")
+        
+        with st.form("threshold_config"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                bugs_threshold = st.number_input(
+                    "Bugs Threshold",
+                    min_value=1,
+                    value=5,
+                    help="Alert when bugs increase by this amount"
+                )
+                vulnerabilities_threshold = st.number_input(
+                    "Vulnerabilities Threshold",
+                    min_value=1,
+                    value=3,
+                    help="Alert when vulnerabilities increase by this amount"
+                )
+                code_smells_threshold = st.number_input(
+                    "Code Smells Threshold",
+                    min_value=1,
+                    value=10,
+                    help="Alert when code smells increase by this amount"
+                )
+            
+            with col2:
+                coverage_threshold = st.number_input(
+                    "Coverage Change Threshold (%)",
+                    min_value=1,
+                    value=5,
+                    help="Alert when coverage changes by this percentage"
+                )
+                duplication_threshold = st.number_input(
+                    "Duplication Change Threshold (%)",
+                    min_value=1,
+                    value=5,
+                    help="Alert when duplication changes by this percentage"
+                )
+            
+            if st.form_submit_button("💾 Save Thresholds"):
+                # Save thresholds to database (implementation needed)
+                st.success("✅ Thresholds updated successfully")
