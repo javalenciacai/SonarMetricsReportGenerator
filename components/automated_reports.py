@@ -1,9 +1,34 @@
 import streamlit as st
+import os
 from datetime import datetime, timezone, timedelta
 import json
 from database.schema import execute_query
 from services.report_generator import ReportGenerator
 from services.scheduler import SchedulerService
+
+def display_email_configuration():
+    st.markdown("### ✉️ Email Configuration")
+    
+    smtp_server = os.getenv('SMTP_SERVER')
+    smtp_port = os.getenv('SMTP_PORT')
+    smtp_username = os.getenv('SMTP_USERNAME')
+    smtp_password = os.getenv('SMTP_PASSWORD')
+    
+    if all([smtp_server, smtp_port, smtp_username, smtp_password]):
+        try:
+            report_generator = ReportGenerator()
+            success, message = report_generator.test_smtp_connection()
+            if success:
+                st.markdown("✅ Email Configuration: Connected")
+            else:
+                st.markdown("❌ Email Configuration: Error")
+                st.error(f"Connection failed: {message}")
+        except Exception as e:
+            st.markdown("❌ Email Configuration: Error")
+            st.error(f"Configuration error: {str(e)}")
+    else:
+        st.markdown("⚠️ Email Configuration: Not configured")
+        st.warning("Please set up SMTP configuration in environment variables")
 
 def get_report_schedules():
     """Get all configured report schedules"""
@@ -334,7 +359,7 @@ def display_automated_reports():
                     status = "active" if schedule['is_active'] else "inactive"
                     st.markdown(f"""
                         <div class="schedule-card">
-                            <span class="status-{status}">
+                            <span class="status-badge status-{status}">
                                 {'🟢 Active' if schedule['is_active'] else '⚫ Inactive'}
                             </span>
                             <p style="margin-top: 10px;">
@@ -408,11 +433,10 @@ def display_automated_reports():
                         st.markdown("</div>", unsafe_allow_html=True)
                         
                         st.download_button(
-                            "📥 Download Report",
+                            "📥 Download Preview",
                             report,
                             file_name=f"report_preview.{preview_format.lower()}",
-                            mime=f"text/{preview_format.lower()}",
-                            help="Download the preview in your selected format"
+                            mime=f"text/{preview_format.lower()}"
                         )
                     else:
                         st.warning("⚠️ No data available for preview")
