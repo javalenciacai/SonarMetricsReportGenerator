@@ -406,21 +406,33 @@ class ReportGenerator:
                 background: #48BB78;
                 color: #FAFAFA;
             }
-            code {
-                font-family: 'SF Mono', 'Consolas', monospace;
-                background: #1A1F25;
-                padding: 2px 6px;
+            .sparkline {
+                display: inline-block;
+                margin-left: 10px;
+                vertical-align: middle;
+            }
+            .metric-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 15px;
+            }
+            .period-comparison {
+                font-size: 12px;
+                padding: 4px 8px;
                 border-radius: 4px;
-                color: #FAFAFA;
+                background: rgba(0, 0, 0, 0.2);
+            }
+            .interactive-chart {
+                margin-top: 20px;
+                background: rgba(45, 55, 72, 0.5);
+                border-radius: 8px;
+                padding: 15px;
             }
         </style>
         """
 
-        metrics_html = self._format_metrics_grid(report_data['current_metrics'])
-        changes_html = self._format_changes_grid(report_data['changes'])
-        critical_html = self._format_critical_issues_grid(report_data['critical_issues'])
-
-        template = f"""
+        return f"""
         {css}
         <div class="report-container">
             <div class="header">
@@ -429,17 +441,23 @@ class ReportGenerator:
             </div>
 
             <div class="metrics-grid">
-                {metrics_html}
-                {changes_html}
+                <div class="metric-card">
+                    <h3>🎯 Current Metrics</h3>
+                    {self._format_metrics_grid(report_data['current_metrics'])}
+                </div>
+
+                <div class="metric-card">
+                    <h3>📈 24-Hour Changes</h3>
+                    {self._format_changes_grid(report_data['changes'])}
+                </div>
             </div>
 
             <div class="critical-section">
                 <h3>⚠️ Critical Issues</h3>
-                {critical_html}
+                {self._format_critical_issues_grid(report_data['critical_issues'])}
             </div>
         </div>
         """
-        return template
 
     def _format_weekly_report(self, report_data):
         """Format weekly report in HTML with modern tech styling"""
@@ -529,21 +547,33 @@ class ReportGenerator:
             .trend-improving { color: #48BB78; }
             .trend-worsening { color: #F56565; }
             .trend-stable { color: #ECC94B; }
-            code {
-                font-family: 'SF Mono', 'Consolas', monospace;
-                background: #1A1F25;
-                padding: 2px 6px;
+            .sparkline {
+                display: inline-block;
+                margin-left: 10px;
+                vertical-align: middle;
+            }
+            .metric-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 15px;
+            }
+            .period-comparison {
+                font-size: 12px;
+                padding: 4px 8px;
                 border-radius: 4px;
-                color: #FAFAFA;
+                background: rgba(0, 0, 0, 0.2);
+            }
+            .interactive-chart {
+                margin-top: 20px;
+                background: rgba(45, 55, 72, 0.5);
+                border-radius: 8px;
+                padding: 15px;
             }
         </style>
         """
 
-        metrics_html = self._format_metrics_grid(report_data['current_metrics'])
-        changes_html = self._format_changes_grid(report_data['changes'])
-        trends_html = self._format_trends_grid(report_data['trend_analysis'])
-
-        template = f"""
+        return f"""
         {css}
         <div class="report-container">
             <div class="header">
@@ -557,44 +587,63 @@ class ReportGenerator:
             </div>
 
             <div class="metrics-grid">
-                {metrics_html}
-                {changes_html}
+                <div class="metric-card">
+                    <h3>🎯 Current Metrics</h3>
+                    {self._format_metrics_grid(report_data['current_metrics'])}
+                </div>
+
+                <div class="metric-card">
+                    <h3>📈 Week-over-Week Changes</h3>
+                    {self._format_changes_grid(report_data['changes'])}
+                </div>
             </div>
 
             <div class="trend-card">
                 <h3>📊 Trend Analysis</h3>
                 <div class="trend-grid">
-                    {trends_html}
+                    {self._format_trends_grid(report_data['trend_analysis'])}
                 </div>
+            </div>
+
+            <div class="interactive-chart">
+                <h3>📈 Interactive Metrics History</h3>
+                <!-- Placeholder for interactive chart - implemented in the UI -->
             </div>
         </div>
         """
-        return template
 
     def _format_metrics_grid(self, metrics):
+        """Format metrics with modern grid layout"""
         if not metrics:
             return "<p class='neutral'>No metrics data available</p>"
 
         items = []
-        for metric in metrics:
-            items.extend([
-                self._format_metric_card("Bugs", metric.get('bugs', 0), "🐛"),
-                self._format_metric_card("Vulnerabilities", metric.get('vulnerabilities', 0), "⚠️"),
-                self._format_metric_card("Code Smells", metric.get('code_smells', 0), "🔍"),
-                self._format_metric_card("Coverage", f"{metric.get('coverage', 0):.1f}%", "📊"),
-                self._format_metric_card("Duplication", f"{metric.get('duplicated_lines_density', 0):.1f}%", "📝")
-            ])
+        metrics_icons = {
+            'bugs': '🐛',
+            'vulnerabilities': '⚠️',
+            'code_smells': '🔍',
+            'coverage': '📊',
+            'duplicated_lines_density': '📝',
+            'ncloc': '📏'
+        }
+
+        for metric in metrics[0]:
+            if metric in metrics_icons:
+                value = metrics[0][metric]
+                formatted_value = f"{value:.1f}%" if metric in ['coverage', 'duplicated_lines_density'] else value
+                items.append(f"""
+                <div class="metric-item">
+                    <div class="metric-header">
+                        <span class="metric-title">{metrics_icons[metric]} {metric.replace('_', ' ').title()}</span>
+                    </div>
+                    <div class="metric-value">{formatted_value}</div>
+                </div>
+                """)
+
         return "\n".join(items)
 
-    def _format_metric_card(self, title, value, icon):
-        return f"""
-        <div class="metric-card">
-            <div class="metric-title">{icon} {title}</div>
-            <div class="metric-value">{value}</div>
-        </div>
-        """
-
     def _format_changes_grid(self, changes):
+        """Format changes with modern styling"""
         if not changes:
             return "<p class='neutral'>No changes data available</p>"
 
@@ -605,20 +654,27 @@ class ReportGenerator:
             trend_icon = "📈" if data['change'] > 0 else "📉" if data['change'] < 0 else "📊"
 
             items.append(f"""
-            <div class="metric-card">
-                <div class="metric-title">{metric.replace('_', ' ').title()}</div>
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-title">{metric.replace('_', ' ').title()}</span>
+                    <span class="trend-indicator">{trend_icon}</span>
+                </div>
                 <div class="metric-value {status_class}">
                     {direction}{data['change']:.1f}
-                    <span class="trend-indicator">{trend_icon}</span>
                 </div>
                 <div class="metric-change {status_class}">
                     {direction}{data['change_percent']:.1f}%
                 </div>
+                <div class="period-comparison">
+                    Previous: {data['previous']:.1f} → Current: {data['current']:.1f}
+                </div>
             </div>
             """)
+
         return "\n".join(items)
 
     def _format_critical_issues_grid(self, issues):
+        """Format critical issues with modern styling"""
         def get_severity_badge(count):
             if count > 10:
                 return 'status-critical'
@@ -626,26 +682,37 @@ class ReportGenerator:
                 return 'status-warning'
             return 'status-good'
 
-        return f"""
-            <div class="metrics-grid">
-                {self._format_issue_card("High Severity Bugs", issues['high_severity_bugs'], get_severity_badge(issues['high_severity_bugs']))}
-                {self._format_issue_card("Critical Vulnerabilities", issues['critical_vulnerabilities'], get_severity_badge(issues['critical_vulnerabilities']))}
-                {self._format_issue_card("Major Code Smells", issues['major_code_smells'], get_severity_badge(issues['major_code_smells']))}
-            </div>
-        """
+        def get_severity_icon(count):
+            if count > 10:
+                return '🔴'
+            elif count > 5:
+                return '🟡'
+            return '🟢'
 
-    def _format_issue_card(self, title, count, badge_class):
-        return f"""
-        <div class="metric-card">
-            <div class="metric-title">{title}</div>
-            <div class="metric-value">
-                {count}
-                <span class="status-badge {badge_class}">{count} Issues</span>
+        items = []
+        for issue_type, count in issues.items():
+            badge_class = get_severity_badge(count)
+            status_icon = get_severity_icon(count)
+            
+            items.append(f"""
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">{issue_type.replace('_', ' ').title()}</span>
+                    <span class="status-badge {badge_class}">{status_icon} {count}</span>
+                </div>
+                <div class="metric-value">
+                    {count}
+                    <div class="period-comparison">
+                        Severity: {badge_class.replace('status-', '').title()}
+                    </div>
+                </div>
             </div>
-        </div>
-        """
+            """)
+
+        return "\n".join(items)
 
     def _format_trends_grid(self, trends):
+        """Format trends with modern styling"""
         if not trends:
             return "<p class='neutral'>No trend data available</p>"
 
@@ -665,8 +732,10 @@ class ReportGenerator:
 
             items.append(f"""
             <div class="trend-item">
-                <span class="trend-icon {trend_class}">{trend_icon}</span>
-                <div class="metric-title">{metric.replace('_', ' ').title()}</div>
+                <div class="metric-header">
+                    <span class="metric-title">{metric.replace('_', ' ').title()}</span>
+                    <span class="trend-icon {trend_class}">{trend_icon}</span>
+                </div>
                 <div class="metric-value {trend_class}">
                     {data['direction'].title()}
                     <div class="metric-change">
@@ -675,115 +744,5 @@ class ReportGenerator:
                 </div>
             </div>
             """)
+
         return "\n".join(items)
-
-    def _format_metric_alerts(self, alerts):
-        """Format metric alerts into HTML with modern tech styling"""
-        css = """
-        <style>
-            body {
-                font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-                background: #1A1F25;
-                color: #A0AEC0;
-                line-height: 1.6;
-                margin: 0;
-                padding: 20px;
-            }
-            .alert-container {
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 30px;
-                background: #1A1F25;
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            }
-            .alert-header {
-                color: #FAFAFA;
-                font-size: 24px;
-                margin-bottom: 20px;
-                padding-bottom: 15px;
-                border-bottom: 2px solid #2D3748;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-            .alert-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                gap: 20px;
-                margin-top: 20px;
-            }
-            .alert-card {
-                background: #2D3748;
-                border-radius: 8px;
-                padding: 20px;
-                transition: transform 0.2s;
-            }
-            .alert-card:hover {
-                transform: translateY(-2px);
-            }
-            .alert-metric {
-                color: #FAFAFA;
-                font-size: 18px;
-                font-weight: 600;
-                margin-bottom: 10px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            .alert-value {
-                font-family: 'SF Mono', 'Consolas', monospace;
-                font-size: 16px;
-                margin-top: 10px;
-            }
-            .alert-change {
-                display: inline-block;
-                padding: 4px 12px;
-                border-radius: 12px;
-                font-size: 14px;
-                margin-top: 10px;
-            }
-            .alert-increase {
-                background: #F56565;
-                color: #FAFAFA;
-            }
-            .alert-decrease {
-                background: #48BB78;
-                color: #FAFAFA;
-            }
-        </style>
-        """
-
-        alert_cards = []
-        for alert in alerts:
-            direction = "increased" if alert['change'] > 0 else "decreased"
-            change_class = "alert-increase" if alert['change'] > 0 else "alert-decrease"
-            icon = "📈" if alert['change'] > 0 else "📉"
-            
-            alert_cards.append(f"""
-                <div class="alert-card">
-                    <div class="alert-metric">
-                        {icon} {alert['metric'].replace('_', ' ').title()}
-                    </div>
-                    <div class="alert-value">
-                        Previous: {alert['previous']}<br>
-                        Current: {alert['current']}
-                    </div>
-                    <div class="alert-change {change_class}">
-                        {direction} by {abs(alert['change'])}
-                    </div>
-                </div>
-            """)
-
-        template = f"""
-        {css}
-        <div class="alert-container">
-            <div class="alert-header">
-                ⚠️ SonarCloud Metric Change Alert
-            </div>
-            <div class="alert-grid">
-                {"".join(alert_cards)}
-            </div>
-        </div>
-        """
-        return template
