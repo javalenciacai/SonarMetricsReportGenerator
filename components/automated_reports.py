@@ -81,121 +81,176 @@ def delete_report_schedule(schedule_id):
         st.error(f"Error deleting report schedule: {str(e)}")
         return False
 
-def display_email_configuration():
-    """Display and test email configuration"""
-    st.markdown("""
-        <div class="tech-card">
-            <h3>✉️ Email Configuration</h3>
-            <div class="tech-content">
-    """, unsafe_allow_html=True)
-    
-    report_generator = ReportGenerator()
-    status, message = report_generator.test_smtp_connection()
-    
-    if status:
-        st.success("✅ Email configuration is working")
-    else:
-        st.error(f"❌ Email configuration error: {message}")
-    
-    with st.expander("📧 View Settings"):
-        st.code(f"""
-        SMTP Server: {report_generator.smtp_server}
-        SMTP Port: {report_generator.smtp_port}
-        Username: {'Configured' if report_generator.smtp_username else 'Not configured'}
-        Password: {'Configured' if report_generator.smtp_password else 'Not configured'}
-        """)
-    
-    st.markdown("</div></div>", unsafe_allow_html=True)
-
 def display_automated_reports():
-    """Display the automated reports management interface"""
+    """Display the automated reports management interface with modern tech aesthetics"""
     st.markdown("""
         <style>
-        .tech-card {
-            background: #1A1F25;
-            border: 1px solid #2D3748;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 15px 0;
+        /* Global Styles */
+        .stApp {
+            background-color: #1A1F25;
+            color: #A0AEC0;
         }
+        
+        /* Modern Card Styles */
+        .tech-card {
+            background: #2D3748;
+            border-radius: 12px;
+            padding: 25px;
+            margin: 20px 0;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .tech-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Header Styles */
         .tech-header {
             color: #FAFAFA;
-            font-size: 24px;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #2D3748;
-            padding-bottom: 10px;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid rgba(160, 174, 192, 0.1);
         }
-        .tech-content {
-            padding: 10px 0;
-        }
+        
+        /* Schedule Card Styles */
         .schedule-card {
-            background: #2D3748;
-            border-radius: 6px;
-            padding: 15px;
-            margin: 10px 0;
+            background: rgba(45, 55, 72, 0.5);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 1px solid rgba(160, 174, 192, 0.1);
+            transition: all 0.2s ease;
+        }
+        .schedule-card:hover {
+            background: rgba(45, 55, 72, 0.8);
+            transform: translateY(-2px);
+        }
+        
+        /* Status Badge Styles */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
         }
         .status-active {
-            background: #48BB78;
+            background: linear-gradient(135deg, #48BB78 0%, #38A169 100%);
             color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
+            box-shadow: 0 2px 8px rgba(72, 187, 120, 0.2);
         }
         .status-inactive {
-            background: #F56565;
+            background: linear-gradient(135deg, #F56565 0%, #C53030 100%);
             color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
+            box-shadow: 0 2px 8px rgba(245, 101, 101, 0.2);
         }
+        
+        /* Button Styles */
+        .stButton > button {
+            background: linear-gradient(135deg, #4A5568 0%, #2D3748 100%) !important;
+            color: white !important;
+            border: none !important;
+            padding: 10px 20px !important;
+            border-radius: 8px !important;
+            font-weight: 500 !important;
+            transition: all 0.2s ease !important;
+        }
+        .stButton > button:hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+        }
+        
+        /* Form Input Styles */
+        .stTextInput > div > div {
+            background: #2D3748 !important;
+            border: 1px solid rgba(160, 174, 192, 0.1) !important;
+            border-radius: 8px !important;
+        }
+        .stTextArea > div > div {
+            background: #2D3748 !important;
+            border: 1px solid rgba(160, 174, 192, 0.1) !important;
+            border-radius: 8px !important;
+        }
+        .stSelectbox > div > div {
+            background: #2D3748 !important;
+            border: 1px solid rgba(160, 174, 192, 0.1) !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Tabs Styling */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+            background-color: transparent;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 50px;
+            background-color: #2D3748;
+            border-radius: 8px;
+            padding: 0 20px;
+            transition: all 0.2s ease;
+        }
+        .stTabs [data-baseweb="tab"]:hover {
+            background-color: #4A5568;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #4A5568 !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Metric Grid Styles */
         .metric-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 15px 0;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
         }
         .metric-card {
             background: #2D3748;
-            padding: 15px;
-            border-radius: 6px;
-            text-align: center;
+            padding: 20px;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
         .metric-value {
-            font-size: 24px;
-            font-weight: bold;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 1.5rem;
+            font-weight: 600;
             color: #FAFAFA;
         }
         .metric-label {
             color: #A0AEC0;
-            font-size: 14px;
+            font-size: 0.9rem;
             margin-top: 5px;
         }
-        .action-button {
-            background: #4A5568;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            border: none;
-            cursor: pointer;
-            transition: background 0.3s;
+        
+        /* Loading Spinner */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
-        .action-button:hover {
-            background: #2D3748;
-        }
-        .stButton>button {
-            background: #4A5568 !important;
-            color: white !important;
-            border: none !important;
-            padding: 8px 16px !important;
-            border-radius: 4px !important;
-        }
-        .stButton>button:hover {
-            background: #2D3748 !important;
+        .loading-spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(160, 174, 192, 0.1);
+            border-top: 3px solid #4A5568;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
         }
         </style>
-        
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
         <div class="tech-card">
-            <h2 class="tech-header">📊 Automated Reports Dashboard</h2>
+            <h1 class="tech-header">📊 Automated Reports Dashboard</h1>
         </div>
     """, unsafe_allow_html=True)
     
@@ -207,14 +262,14 @@ def display_automated_reports():
     tab1, tab2, tab3 = st.tabs([
         "📅 Schedule Management",
         "👀 Report Preview",
-        "⚙️ Threshold Configuration"
+        "⚙️ Configuration"
     ])
     
     with tab1:
         st.markdown("""
             <div class="tech-card">
                 <h3 class="tech-header">Create New Report Schedule</h3>
-                <div class="tech-content">
+            </div>
         """, unsafe_allow_html=True)
         
         with st.form("new_report_schedule", clear_on_submit=True):
@@ -222,13 +277,13 @@ def display_automated_reports():
             
             with col1:
                 report_type = st.selectbox(
-                    "Report Type 📋",
+                    "📋 Report Type",
                     ["Executive Summary", "Full Metrics", "Issues Only"],
                     help="Select the type of report to generate"
                 )
                 
                 frequency = st.selectbox(
-                    "Frequency ⏰",
+                    "⏰ Frequency",
                     ["daily", "weekly", "every_4_hours"],
                     help="How often should this report be generated",
                     format_func=lambda x: x.replace('_', ' ').title()
@@ -236,13 +291,13 @@ def display_automated_reports():
             
             with col2:
                 recipients = st.text_area(
-                    "Recipients 👥",
+                    "👥 Recipients",
                     help="Enter email addresses, one per line",
                     placeholder="user@example.com\nother@example.com"
                 )
                 
                 report_format = st.selectbox(
-                    "Report Format 📄",
+                    "📄 Report Format",
                     ["HTML", "PDF", "CSV"],
                     help="Select the format for the report"
                 )
@@ -250,73 +305,71 @@ def display_automated_reports():
             submit_button = st.form_submit_button("📅 Create Schedule")
             
             if submit_button:
-                recipient_list = [email.strip() for email in recipients.split('\n') if email.strip()]
-                if not recipient_list:
-                    st.error("⚠️ Please enter at least one recipient email address")
-                else:
-                    schedule_id = save_report_schedule(
-                        report_type, frequency, recipient_list, report_format
-                    )
-                    if schedule_id:
-                        st.success("✅ Report schedule created successfully!")
-                        st.rerun()
+                with st.spinner("Creating schedule..."):
+                    recipient_list = [email.strip() for email in recipients.split('\n') if email.strip()]
+                    if not recipient_list:
+                        st.error("⚠️ Please enter at least one recipient email address")
+                    else:
+                        schedule_id = save_report_schedule(
+                            report_type, frequency, recipient_list, report_format
+                        )
+                        if schedule_id:
+                            st.success("✅ Report schedule created successfully!")
+                            st.rerun()
         
-        st.markdown("</div></div>", unsafe_allow_html=True)
-        
-        st.markdown("""
-            <div class="tech-card">
-                <h3 class="tech-header">Active Schedules</h3>
-                <div class="tech-content">
-        """, unsafe_allow_html=True)
-        
+        # Display existing schedules
         schedules = get_report_schedules()
-        
-        if not schedules:
-            st.info("🔍 No report schedules configured yet.")
-        else:
+        if schedules:
+            st.markdown("""
+                <div class="tech-card">
+                    <h3 class="tech-header">Active Schedules</h3>
+                </div>
+            """, unsafe_allow_html=True)
+            
             for schedule in schedules:
                 with st.expander(
                     f"📄 {schedule['report_type']} ({schedule['frequency'].replace('_', ' ').title()})", 
                     expanded=True
                 ):
-                    col1, col2 = st.columns([3, 1])
+                    status = "active" if schedule['is_active'] else "inactive"
+                    st.markdown(f"""
+                        <div class="schedule-card">
+                            <span class="status-{status}">
+                                {'🟢 Active' if schedule['is_active'] else '⚫ Inactive'}
+                            </span>
+                            <p style="margin-top: 10px;">
+                                <strong>Format:</strong> {schedule['report_format']} 📄<br>
+                                <strong>Recipients:</strong> {', '.join(json.loads(schedule['recipients']) if isinstance(schedule['recipients'], str) else schedule['recipients'])} 👥<br>
+                                <strong>Next Run:</strong> {schedule['next_run_time'].strftime('%Y-%m-%d %H:%M UTC')} ⏰<br>
+                                {f"<strong>Last Run:</strong> {schedule['last_run'].strftime('%Y-%m-%d %H:%M UTC')} 📅" if schedule['last_run'] else ''}
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
                     
+                    col1, col2 = st.columns([1, 1])
                     with col1:
-                        status = "active" if schedule['is_active'] else "inactive"
-                        st.markdown(f"""
-                            <div class="schedule-card">
-                                <span class="status-{status}">
-                                    {'🟢 Active' if schedule['is_active'] else '⚫ Inactive'}
-                                </span>
-                                <p style="margin-top: 10px;">
-                                    <strong>Format:</strong> {schedule['report_format']} 📄<br>
-                                    <strong>Recipients:</strong> {', '.join(json.loads(schedule['recipients']) if isinstance(schedule['recipients'], str) else schedule['recipients'])} 👥<br>
-                                    <strong>Next Run:</strong> {schedule['next_run_time'].strftime('%Y-%m-%d %H:%M UTC')} ⏰<br>
-                                    {f"<strong>Last Run:</strong> {schedule['last_run'].strftime('%Y-%m-%d %H:%M UTC')} 📅" if schedule['last_run'] else ''}
-                                </p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col2:
                         new_status = not schedule['is_active']
                         status_label = "🟢 Activate" if new_status else "⚫ Deactivate"
                         if st.button(status_label, key=f"toggle_{schedule['id']}"):
-                            if toggle_report_schedule(schedule['id'], new_status):
-                                st.success(f"Schedule {status_label.lower()}d successfully!")
-                                st.rerun()
-                        
+                            with st.spinner(f"{'Activating' if new_status else 'Deactivating'} schedule..."):
+                                if toggle_report_schedule(schedule['id'], new_status):
+                                    st.success(f"Schedule {status_label.lower()}d successfully!")
+                                    st.rerun()
+                    
+                    with col2:
                         if st.button("🗑️ Delete", key=f"delete_{schedule['id']}", type="secondary"):
-                            if delete_report_schedule(schedule['id']):
-                                st.success("Schedule deleted successfully!")
-                                st.rerun()
-        
-        st.markdown("</div></div>", unsafe_allow_html=True)
+                            with st.spinner("Deleting schedule..."):
+                                if delete_report_schedule(schedule['id']):
+                                    st.success("Schedule deleted successfully!")
+                                    st.rerun()
+        else:
+            st.info("🔍 No report schedules configured yet.")
     
     with tab2:
         st.markdown("""
             <div class="tech-card">
                 <h3 class="tech-header">Report Preview</h3>
-                <div class="tech-content">
+            </div>
         """, unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
@@ -335,11 +388,10 @@ def display_automated_reports():
                 help="Choose the format for the preview"
             )
         
-        report_generator = ReportGenerator()
-        
         if st.button("📋 Generate Preview", type="primary"):
-            with st.spinner("Generating preview... This may take a moment."):
+            with st.spinner("Generating preview..."):
                 try:
+                    report_generator = ReportGenerator()
                     if preview_type == "Daily Report":
                         report = report_generator.generate_daily_report()
                     elif preview_type == "Weekly Report":
@@ -350,7 +402,7 @@ def display_automated_reports():
                     if report:
                         st.markdown("""
                             <div class="tech-card">
-                                <h4>Preview Output</h4>
+                                <h4 class="tech-header">Preview Output</h4>
                         """, unsafe_allow_html=True)
                         st.markdown(report, unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
@@ -366,14 +418,12 @@ def display_automated_reports():
                         st.warning("⚠️ No data available for preview")
                 except Exception as e:
                     st.error(f"❌ Error generating preview: {str(e)}")
-        
-        st.markdown("</div></div>", unsafe_allow_html=True)
     
     with tab3:
         st.markdown("""
             <div class="tech-card">
                 <h3 class="tech-header">Threshold Configuration</h3>
-                <div class="tech-content">
+            </div>
         """, unsafe_allow_html=True)
         
         with st.form("threshold_config"):
@@ -420,6 +470,5 @@ def display_automated_reports():
             st.markdown("</div>", unsafe_allow_html=True)
             
             if st.form_submit_button("💾 Save Thresholds", type="primary"):
-                st.success("✅ Thresholds updated successfully")
-        
-        st.markdown("</div></div>", unsafe_allow_html=True)
+                with st.spinner("Saving thresholds..."):
+                    st.success("✅ Thresholds updated successfully")
