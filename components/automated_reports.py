@@ -172,7 +172,10 @@ def display_automated_reports():
                 
                 with col1:
                     st.markdown(f"**Format:** {schedule['report_format']}")
-                    st.markdown(f"**Recipients:** {', '.join(json.loads(schedule['recipients']))}")
+                    recipients_list = schedule['recipients']
+                    if isinstance(recipients_list, str):
+                        recipients_list = json.loads(recipients_list)
+                    st.markdown(f"**Recipients:** {', '.join(recipients_list)}")
                     st.markdown(f"**Next Run:** {schedule['next_run_time']}")
                     if schedule['last_run']:
                         st.markdown(f"**Last Run:** {schedule['last_run']}")

@@ -1,9 +1,10 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 from datetime import datetime, timezone
 import logging
-import json
+from services.report_generator import ReportGenerator
 
 class SchedulerService:
     def __init__(self):
@@ -11,6 +12,7 @@ class SchedulerService:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
         self.job_registry = {}
+        self.report_generator = ReportGenerator()
         
         # Add listeners for job events
         self.scheduler.add_listener(
@@ -49,16 +51,17 @@ class SchedulerService:
 
                 # Handle job retry logic
                 if job_info.get('error_count', 0) < 3:  # Limit retries
-                    retry_interval = job_info.get('interval', 3600) // 2  # Retry at half the normal interval
+                    retry_interval = 1800  # 30 minutes for report retries
                     self.logger.info(f"[{timestamp}] Scheduling retry for job {job_id} in {retry_interval} seconds")
                     try:
-                        self.schedule_metrics_update(
-                            event.job.func,
-                            job_info['entity_type'],
-                            job_info['entity_id'],
-                            retry_interval,
-                            is_retry=True
-                        )
+                        if job_info['type'] == 'report':
+                            self.schedule_report(
+                                job_info['report_type'],
+                                job_info['frequency'],
+                                job_info['recipients'],
+                                job_info['report_format'],
+                                is_retry=True
+                            )
                     except Exception as e:
                         self.logger.error(f"[{timestamp}] Failed to schedule retry for job {job_id}: {str(e)}")
                 else:
@@ -93,7 +96,7 @@ class SchedulerService:
                     'last_execution_details': {
                         'timestamp': timestamp,
                         'status': status,
-                        'metrics_summary': execution_details
+                        'report_summary': execution_details
                     }
                 }
 
@@ -114,6 +117,154 @@ class SchedulerService:
                 'last_run': timestamp
             }
 
+    def start(self):
+        """Start the scheduler"""
+        try:
+            if not self.scheduler.running:
+                self.scheduler.start()
+                self.logger.info("Scheduler started successfully (UTC)")
+                self.verify_scheduler_state()
+                self._schedule_default_reports()
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to start scheduler: {str(e)}")
+            return False
+
+    def _schedule_default_reports(self):
+        """Schedule default daily and weekly reports"""
+        try:
+            # Daily report at 1:00 AM UTC
+            self.scheduler.add_job(
+                self._generate_daily_report,
+                CronTrigger(hour=1, minute=0, timezone='UTC'),
+                id='daily_report',
+                name='Daily Metrics Report',
+                replace_existing=True
+            )
+
+            # Weekly report on Monday at 2:00 AM UTC
+            self.scheduler.add_job(
+                self._generate_weekly_report,
+                CronTrigger(day_of_week='mon', hour=2, minute=0, timezone='UTC'),
+                id='weekly_report',
+                name='Weekly Metrics Report',
+                replace_existing=True
+            )
+
+            # Metric change alerts every 4 hours
+            self.scheduler.add_job(
+                self._check_metric_changes,
+                IntervalTrigger(hours=4, timezone='UTC'),
+                id='metric_alerts',
+                name='Metric Change Alerts',
+                replace_existing=True
+            )
+
+            self.logger.info("Default report schedules configured successfully")
+        except Exception as e:
+            self.logger.error(f"Error scheduling default reports: {str(e)}")
+
+    def _generate_daily_report(self):
+        """Generate and send daily report"""
+        try:
+            report = self.report_generator.generate_daily_report()
+            if report:
+                recipients = self._get_report_recipients('daily')
+                if recipients:
+                    success = self.report_generator.send_email(
+                        recipients,
+                        "Daily SonarCloud Metrics Report",
+                        report,
+                        'HTML'
+                    )
+                    return success, {"report_type": "daily", "recipients": len(recipients)}
+            return False, {"error": "No report data generated"}
+        except Exception as e:
+            self.logger.error(f"Error generating daily report: {str(e)}")
+            return False, {"error": str(e)}
+
+    def _generate_weekly_report(self):
+        """Generate and send weekly report"""
+        try:
+            report = self.report_generator.generate_weekly_report()
+            if report:
+                recipients = self._get_report_recipients('weekly')
+                if recipients:
+                    success = self.report_generator.send_email(
+                        recipients,
+                        "Weekly SonarCloud Metrics Report",
+                        report,
+                        'HTML'
+                    )
+                    return success, {"report_type": "weekly", "recipients": len(recipients)}
+            return False, {"error": "No report data generated"}
+        except Exception as e:
+            self.logger.error(f"Error generating weekly report: {str(e)}")
+            return False, {"error": str(e)}
+
+    def _check_metric_changes(self):
+        """Check for significant metric changes and send alerts"""
+        try:
+            alerts = self.report_generator.check_metric_changes()
+            if alerts:
+                recipients = self._get_report_recipients('alerts')
+                if recipients:
+                    alert_html = self._format_metric_alerts(alerts)
+                    success = self.report_generator.send_email(
+                        recipients,
+                        "SonarCloud Metric Change Alert",
+                        alert_html,
+                        'HTML'
+                    )
+                    return success, {"alert_count": len(alerts)}
+            return True, {"message": "No significant changes detected"}
+        except Exception as e:
+            self.logger.error(f"Error checking metric changes: {str(e)}")
+            return False, {"error": str(e)}
+
+    def _get_report_recipients(self, report_type):
+        """Get recipients for a specific report type"""
+        query = """
+        SELECT recipients
+        FROM report_schedules
+        WHERE report_type = %s AND is_active = true;
+        """
+        try:
+            from database.schema import execute_query
+            result = execute_query(query, (report_type,))
+            if result:
+                recipients = set()
+                for row in result:
+                    if isinstance(row[0], str):
+                        recipients.update(json.loads(row[0]))
+                    else:
+                        recipients.update(row[0])
+                return list(recipients)
+            return []
+        except Exception as e:
+            self.logger.error(f"Error getting report recipients: {str(e)}")
+            return []
+
+    def _format_metric_alerts(self, alerts):
+        """Format metric alerts into HTML"""
+        template = """
+        <h2>SonarCloud Metric Change Alert</h2>
+        <p>The following significant changes have been detected:</p>
+        <ul>
+        {}
+        </ul>
+        """
+        
+        alert_items = []
+        for alert in alerts:
+            direction = "increased" if alert['change'] > 0 else "decreased"
+            alert_items.append(
+                f"<li><strong>{alert['metric'].replace('_', ' ').title()}</strong> has {direction} "
+                f"by {abs(alert['change'])} (Threshold: {alert['threshold']})</li>"
+            )
+        
+        return template.format("\n".join(alert_items))
+
     def verify_scheduler_state(self):
         """Verify scheduler state and log active jobs"""
         try:
@@ -130,77 +281,6 @@ class SchedulerService:
         except Exception as e:
             self.logger.error(f"Error verifying scheduler state: {str(e)}")
             return False
-
-    def start(self):
-        """Start the scheduler"""
-        try:
-            if not self.scheduler.running:
-                self.scheduler.start()
-                self.logger.info("Scheduler started successfully (UTC)")
-                self.verify_scheduler_state()
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to start scheduler: {str(e)}")
-            return False
-
-    def schedule_metrics_update(self, job_func, entity_type, entity_id, interval_seconds, is_retry=False):
-        """Schedule a metrics update job"""
-        job_id = f"metrics_update_{entity_type}_{entity_id}"
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        
-        try:
-            # Remove existing job if it exists
-            if not is_retry and job_id in self.job_registry:
-                self.logger.debug(f"[{timestamp}] Removing existing job: {job_id}")
-                self.scheduler.remove_job(job_id)
-            
-            trigger = IntervalTrigger(seconds=interval_seconds)
-            
-            # Add the job with detailed metadata
-            self.scheduler.add_job(
-                job_func,
-                trigger=trigger,
-                id=job_id,
-                name=f'Update Metrics for {entity_type} {entity_id}',
-                replace_existing=True,
-                args=[entity_type, entity_id],
-                max_instances=1
-            )
-            
-            # Update job registry with detailed status information
-            self.job_registry[job_id] = {
-                'type': 'metrics_update',
-                'entity_type': entity_type,
-                'entity_id': entity_id,
-                'interval': interval_seconds,
-                'created_at': timestamp,
-                'last_scheduled': timestamp,
-                'successful_runs': 0,
-                'error_count': 0,
-                'missed_runs': 0,
-                'last_status': 'scheduled',
-                'last_run': None,
-                'last_error': None,
-                'is_retry': is_retry
-            }
-            
-            self.logger.info(
-                f"[{timestamp}] {'Retry scheduled' if is_retry else 'Scheduled'} "
-                f"metrics update for {entity_type} {entity_id} "
-                f"every {interval_seconds} seconds"
-            )
-            
-            # Verify job registration
-            job = self.scheduler.get_job(job_id)
-            if not job:
-                raise Exception("Job verification failed - Job not properly registered")
-            
-            self.verify_scheduler_state()
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"[{timestamp}] Failed to schedule metrics update job: {str(e)}")
-            raise
 
     def get_job_status(self, job_id):
         """Get detailed status of a specific job"""
