@@ -59,7 +59,9 @@ class ReportGenerator:
         changes = self._calculate_changes(current, previous)
         alerts = self._check_thresholds(changes, thresholds)
         
-        return alerts if alerts else None
+        if alerts:
+            return self._format_metric_alerts(alerts)
+        return None
 
     def send_email(self, recipients, subject, content, report_format='HTML'):
         """Send email using configured SMTP settings"""
@@ -286,7 +288,8 @@ class ReportGenerator:
                         'change': data['change'],
                         'threshold': threshold,
                         'previous': data['previous'],
-                        'current': data['current']
+                        'current': data['current'],
+                        'change_percent': data['change_percent']
                     })
         
         return alerts
@@ -411,3 +414,110 @@ class ReportGenerator:
                 f"(Rate: {data['change_rate']:.2f}/day)</li>"
             )
         return "\n".join(items)
+
+    def _format_metric_alerts(self, alerts):
+        """Format metric alerts into HTML with enhanced styling"""
+        css_styles = """
+        <style>
+            .alert-container {
+                background: #1A1F25;
+                border: 1px solid #2D3748;
+                border-radius: 8px;
+                padding: 20px;
+                margin: 20px 0;
+                font-family: Arial, sans-serif;
+            }
+            .alert-header {
+                color: #FAFAFA;
+                font-size: 24px;
+                margin-bottom: 15px;
+                border-bottom: 1px solid #2D3748;
+                padding-bottom: 10px;
+            }
+            .alert-timestamp {
+                color: #A0AEC0;
+                font-size: 14px;
+                margin-bottom: 20px;
+            }
+            .alert-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }
+            .alert-item {
+                background: #2D3748;
+                border-radius: 6px;
+                padding: 15px;
+                margin-bottom: 10px;
+                color: #FAFAFA;
+            }
+            .alert-title {
+                font-size: 18px;
+                font-weight: bold;
+                margin-bottom: 10px;
+            }
+            .metric-change {
+                display: flex;
+                justify-content: space-between;
+                margin-top: 10px;
+            }
+            .change-indicator {
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            .change-negative { background: #38A169; color: #FAFAFA; }
+            .change-positive { background: #E53E3E; color: #FAFAFA; }
+            .metric-details {
+                color: #A0AEC0;
+                font-size: 14px;
+                margin-top: 8px;
+            }
+        </style>
+        """
+        
+        template = f"""
+        {css_styles}
+        <div class="alert-container">
+            <h2 class="alert-header">⚠️ SonarCloud Metric Change Alert</h2>
+            <div class="alert-timestamp">
+                Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+            </div>
+            <p>The following significant changes have been detected:</p>
+            <ul class="alert-list">
+            {{alert_items}}
+            </ul>
+        </div>
+        """
+        
+        alert_items = []
+        for alert in alerts:
+            metric_name = alert['metric'].replace('_', ' ').title()
+            is_improvement = (
+                (alert['change'] < 0 and alert['metric'] not in ['coverage']) or
+                (alert['change'] > 0 and alert['metric'] in ['coverage'])
+            )
+            change_class = 'change-negative' if is_improvement else 'change-positive'
+            change_symbol = '↓' if alert['change'] < 0 else '↑'
+            
+            alert_items.append(f"""
+                <li class="alert-item">
+                    <div class="alert-title">{metric_name}</div>
+                    <div class="metric-change">
+                        <span>Change: 
+                            <span class="change-indicator {change_class}">
+                                {change_symbol} {abs(alert['change']):.1f}
+                            </span>
+                        </span>
+                        <span>
+                            {abs(alert['change_percent']):.1f}%
+                        </span>
+                    </div>
+                    <div class="metric-details">
+                        Previous: {alert['previous']:.1f} → Current: {alert['current']:.1f}
+                        (Threshold: {alert['threshold']})
+                    </div>
+                </li>
+            """)
+        
+        return template.format(alert_items="\n".join(alert_items))
