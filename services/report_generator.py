@@ -1,10 +1,10 @@
+import os
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from database.schema import execute_query
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
 import json
 import logging
 
@@ -30,7 +30,7 @@ class ReportGenerator:
             'critical_issues': self._get_critical_issues(current_metrics)
         }
         
-        return self._format_report(report)
+        return self._format_daily_report(report)
 
     def generate_weekly_report(self, project_key=None):
         """Generate weekly report with week-over-week comparison"""
@@ -46,7 +46,7 @@ class ReportGenerator:
             'executive_summary': self._generate_executive_summary(current_metrics, previous_week)
         }
         
-        return self._format_report(report)
+        return self._format_weekly_report(report)
 
     def check_metric_changes(self, project_key=None, thresholds=None):
         """Check for significant metric changes"""
@@ -294,230 +294,496 @@ class ReportGenerator:
         
         return alerts
 
-    def _format_report(self, report_data):
-        """Format report data based on type"""
-        if report_data['type'] == 'daily':
-            return self._format_daily_report(report_data)
-        elif report_data['type'] == 'weekly':
-            return self._format_weekly_report(report_data)
-        return json.dumps(report_data, indent=2)
-
     def _format_daily_report(self, report_data):
-        """Format daily report in HTML"""
-        template = """
-        <h2>Daily SonarCloud Metrics Report</h2>
-        <p>Generated on: {timestamp}</p>
-        
-        <h3>Current Metrics</h3>
-        <ul>
-        {current_metrics}
-        </ul>
-        
-        <h3>24-Hour Changes</h3>
-        <ul>
-        {changes}
-        </ul>
-        
-        <h3>Critical Issues</h3>
-        <ul>
-        {critical_issues}
-        </ul>
+        """Format daily report in HTML with modern tech styling"""
+        css = """
+        <style>
+            body {
+                font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+                background: #1A1F25;
+                color: #A0AEC0;
+                line-height: 1.6;
+                margin: 0;
+                padding: 20px;
+            }
+            .report-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 30px;
+                background: #1A1F25;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            .header {
+                border-bottom: 2px solid #2D3748;
+                padding-bottom: 20px;
+                margin-bottom: 30px;
+            }
+            h1, h2, h3 {
+                color: #FAFAFA;
+                font-weight: 600;
+                margin: 0 0 20px 0;
+            }
+            h1 { font-size: 28px; }
+            h2 { font-size: 24px; }
+            h3 { 
+                font-size: 20px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .timestamp {
+                color: #718096;
+                font-size: 14px;
+                margin-bottom: 20px;
+            }
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin: 20px 0;
+            }
+            .metric-card {
+                background: #2D3748;
+                border-radius: 8px;
+                padding: 20px;
+                transition: transform 0.2s;
+            }
+            .metric-card:hover {
+                transform: translateY(-2px);
+            }
+            .metric-title {
+                color: #A0AEC0;
+                font-size: 14px;
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .metric-value {
+                color: #FAFAFA;
+                font-size: 24px;
+                font-family: 'SF Mono', 'Consolas', monospace;
+                font-weight: 600;
+            }
+            .metric-change {
+                font-size: 14px;
+                margin-top: 8px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                display: inline-block;
+            }
+            .positive { color: #48BB78; }
+            .negative { color: #F56565; }
+            .neutral { color: #A0AEC0; }
+            .trend-indicator {
+                font-size: 16px;
+                margin-left: 8px;
+            }
+            .critical-section {
+                background: #2D3748;
+                border-radius: 8px;
+                padding: 20px;
+                margin-top: 30px;
+            }
+            .status-badge {
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: 500;
+                margin-left: 10px;
+            }
+            .status-critical {
+                background: #F56565;
+                color: #FAFAFA;
+            }
+            .status-warning {
+                background: #ECC94B;
+                color: #1A1F25;
+            }
+            .status-good {
+                background: #48BB78;
+                color: #FAFAFA;
+            }
+            code {
+                font-family: 'SF Mono', 'Consolas', monospace;
+                background: #1A1F25;
+                padding: 2px 6px;
+                border-radius: 4px;
+                color: #FAFAFA;
+            }
+        </style>
         """
-        
-        return template.format(
-            timestamp=report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC'),
-            current_metrics=self._format_metrics_list(report_data['current_metrics']),
-            changes=self._format_changes_list(report_data['changes']),
-            critical_issues=self._format_issues_list(report_data['critical_issues'])
-        )
+
+        metrics_html = self._format_metrics_grid(report_data['current_metrics'])
+        changes_html = self._format_changes_grid(report_data['changes'])
+        critical_html = self._format_critical_issues_grid(report_data['critical_issues'])
+
+        template = f"""
+        {css}
+        <div class="report-container">
+            <div class="header">
+                <h1>📊 Daily SonarCloud Metrics Report</h1>
+                <div class="timestamp">Generated on: {report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
+            </div>
+
+            <div class="metrics-grid">
+                {metrics_html}
+                {changes_html}
+            </div>
+
+            <div class="critical-section">
+                <h3>⚠️ Critical Issues</h3>
+                {critical_html}
+            </div>
+        </div>
+        """
+        return template
 
     def _format_weekly_report(self, report_data):
-        """Format weekly report in HTML"""
-        template = """
-        <h2>Weekly SonarCloud Metrics Report</h2>
-        <p>Generated on: {timestamp}</p>
-        
-        <h3>Executive Summary</h3>
-        <p>{executive_summary}</p>
-        
-        <h3>Current Metrics</h3>
-        <ul>
-        {current_metrics}
-        </ul>
-        
-        <h3>Week-over-Week Changes</h3>
-        <ul>
-        {changes}
-        </ul>
-        
-        <h3>Trend Analysis</h3>
-        <ul>
-        {trends}
-        </ul>
+        """Format weekly report in HTML with modern tech styling"""
+        css = """
+        <style>
+            body {
+                font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+                background: #1A1F25;
+                color: #A0AEC0;
+                line-height: 1.6;
+                margin: 0;
+                padding: 20px;
+            }
+            .report-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 30px;
+                background: #1A1F25;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            .header {
+                border-bottom: 2px solid #2D3748;
+                padding-bottom: 20px;
+                margin-bottom: 30px;
+            }
+            .executive-summary {
+                background: #2D3748;
+                border-radius: 8px;
+                padding: 25px;
+                margin: 20px 0;
+                border-left: 4px solid #48BB78;
+            }
+            h1, h2, h3 {
+                color: #FAFAFA;
+                font-weight: 600;
+                margin: 0 0 20px 0;
+            }
+            h1 { font-size: 28px; }
+            h2 { font-size: 24px; }
+            h3 { 
+                font-size: 20px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .timestamp {
+                color: #718096;
+                font-size: 14px;
+                margin-bottom: 20px;
+            }
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 25px;
+                margin: 25px 0;
+            }
+            .metric-card {
+                background: #2D3748;
+                border-radius: 8px;
+                padding: 25px;
+                transition: transform 0.2s;
+            }
+            .metric-card:hover {
+                transform: translateY(-2px);
+            }
+            .trend-card {
+                background: linear-gradient(45deg, #2D3748, #1A1F25);
+                border-radius: 8px;
+                padding: 25px;
+                margin-top: 30px;
+            }
+            .trend-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 20px;
+            }
+            .trend-item {
+                padding: 15px;
+                background: rgba(45, 55, 72, 0.5);
+                border-radius: 6px;
+            }
+            .trend-icon {
+                font-size: 24px;
+                margin-right: 10px;
+            }
+            .trend-improving { color: #48BB78; }
+            .trend-worsening { color: #F56565; }
+            .trend-stable { color: #ECC94B; }
+            code {
+                font-family: 'SF Mono', 'Consolas', monospace;
+                background: #1A1F25;
+                padding: 2px 6px;
+                border-radius: 4px;
+                color: #FAFAFA;
+            }
+        </style>
         """
-        
-        return template.format(
-            timestamp=report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC'),
-            executive_summary=report_data['executive_summary'],
-            current_metrics=self._format_metrics_list(report_data['current_metrics']),
-            changes=self._format_changes_list(report_data['changes']),
-            trends=self._format_trends_list(report_data['trend_analysis'])
-        )
 
-    def _format_metrics_list(self, metrics):
-        """Format metrics as HTML list items"""
+        metrics_html = self._format_metrics_grid(report_data['current_metrics'])
+        changes_html = self._format_changes_grid(report_data['changes'])
+        trends_html = self._format_trends_grid(report_data['trend_analysis'])
+
+        template = f"""
+        {css}
+        <div class="report-container">
+            <div class="header">
+                <h1>📊 Weekly SonarCloud Metrics Report</h1>
+                <div class="timestamp">Generated on: {report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
+            </div>
+
+            <div class="executive-summary">
+                <h2>📋 Executive Summary</h2>
+                <p>{report_data['executive_summary']}</p>
+            </div>
+
+            <div class="metrics-grid">
+                {metrics_html}
+                {changes_html}
+            </div>
+
+            <div class="trend-card">
+                <h3>📊 Trend Analysis</h3>
+                <div class="trend-grid">
+                    {trends_html}
+                </div>
+            </div>
+        </div>
+        """
+        return template
+
+    def _format_metrics_grid(self, metrics):
         if not metrics:
-            return "<li>No metrics data available</li>"
-        
+            return "<p class='neutral'>No metrics data available</p>"
+
         items = []
         for metric in metrics:
             items.extend([
-                f"<li>Bugs: {metric.get('bugs', 0)}</li>",
-                f"<li>Vulnerabilities: {metric.get('vulnerabilities', 0)}</li>",
-                f"<li>Code Smells: {metric.get('code_smells', 0)}</li>",
-                f"<li>Coverage: {metric.get('coverage', 0):.1f}%</li>",
-                f"<li>Duplication: {metric.get('duplicated_lines_density', 0):.1f}%</li>"
+                self._format_metric_card("Bugs", metric.get('bugs', 0), "🐛"),
+                self._format_metric_card("Vulnerabilities", metric.get('vulnerabilities', 0), "⚠️"),
+                self._format_metric_card("Code Smells", metric.get('code_smells', 0), "🔍"),
+                self._format_metric_card("Coverage", f"{metric.get('coverage', 0):.1f}%", "📊"),
+                self._format_metric_card("Duplication", f"{metric.get('duplicated_lines_density', 0):.1f}%", "📝")
             ])
         return "\n".join(items)
 
-    def _format_changes_list(self, changes):
-        """Format changes as HTML list items"""
+    def _format_metric_card(self, title, value, icon):
+        return f"""
+        <div class="metric-card">
+            <div class="metric-title">{icon} {title}</div>
+            <div class="metric-value">{value}</div>
+        </div>
+        """
+
+    def _format_changes_grid(self, changes):
         if not changes:
-            return "<li>No changes data available</li>"
-        
+            return "<p class='neutral'>No changes data available</p>"
+
         items = []
         for metric, data in changes.items():
             direction = "+" if data['change'] > 0 else ""
-            items.append(
-                f"<li>{metric.replace('_', ' ').title()}: {direction}{data['change']:.1f} "
-                f"({direction}{data['change_percent']:.1f}%)</li>"
-            )
+            status_class = "negative" if data['change'] > 0 else "positive" if data['change'] < 0 else "neutral"
+            trend_icon = "📈" if data['change'] > 0 else "📉" if data['change'] < 0 else "📊"
+
+            items.append(f"""
+            <div class="metric-card">
+                <div class="metric-title">{metric.replace('_', ' ').title()}</div>
+                <div class="metric-value {status_class}">
+                    {direction}{data['change']:.1f}
+                    <span class="trend-indicator">{trend_icon}</span>
+                </div>
+                <div class="metric-change {status_class}">
+                    {direction}{data['change_percent']:.1f}%
+                </div>
+            </div>
+            """)
         return "\n".join(items)
 
-    def _format_issues_list(self, issues):
-        """Format issues as HTML list items"""
-        return "\n".join([
-            f"<li>High Severity Bugs: {issues['high_severity_bugs']}</li>",
-            f"<li>Critical Vulnerabilities: {issues['critical_vulnerabilities']}</li>",
-            f"<li>Major Code Smells: {issues['major_code_smells']}</li>"
-        ])
+    def _format_critical_issues_grid(self, issues):
+        def get_severity_badge(count):
+            if count > 10:
+                return 'status-critical'
+            elif count > 5:
+                return 'status-warning'
+            return 'status-good'
 
-    def _format_trends_list(self, trends):
-        """Format trends as HTML list items"""
+        return f"""
+            <div class="metrics-grid">
+                {self._format_issue_card("High Severity Bugs", issues['high_severity_bugs'], get_severity_badge(issues['high_severity_bugs']))}
+                {self._format_issue_card("Critical Vulnerabilities", issues['critical_vulnerabilities'], get_severity_badge(issues['critical_vulnerabilities']))}
+                {self._format_issue_card("Major Code Smells", issues['major_code_smells'], get_severity_badge(issues['major_code_smells']))}
+            </div>
+        """
+
+    def _format_issue_card(self, title, count, badge_class):
+        return f"""
+        <div class="metric-card">
+            <div class="metric-title">{title}</div>
+            <div class="metric-value">
+                {count}
+                <span class="status-badge {badge_class}">{count} Issues</span>
+            </div>
+        </div>
+        """
+
+    def _format_trends_grid(self, trends):
         if not trends:
-            return "<li>No trend data available</li>"
-        
+            return "<p class='neutral'>No trend data available</p>"
+
         items = []
         for metric, data in trends.items():
-            items.append(
-                f"<li>{metric.replace('_', ' ').title()}: {data['direction'].title()} "
-                f"(Rate: {data['change_rate']:.2f}/day)</li>"
-            )
+            trend_class = {
+                'improving': 'trend-improving',
+                'worsening': 'trend-worsening',
+                'stable': 'trend-stable'
+            }.get(data['direction'], 'trend-stable')
+
+            trend_icon = {
+                'improving': '📉',
+                'worsening': '📈',
+                'stable': '📊'
+            }.get(data['direction'], '📊')
+
+            items.append(f"""
+            <div class="trend-item">
+                <span class="trend-icon {trend_class}">{trend_icon}</span>
+                <div class="metric-title">{metric.replace('_', ' ').title()}</div>
+                <div class="metric-value {trend_class}">
+                    {data['direction'].title()}
+                    <div class="metric-change">
+                        Change Rate: {data['change_rate']:.2f}/day
+                    </div>
+                </div>
+            </div>
+            """)
         return "\n".join(items)
 
     def _format_metric_alerts(self, alerts):
-        """Format metric alerts into HTML with enhanced styling"""
-        css_styles = """
+        """Format metric alerts into HTML with modern tech styling"""
+        css = """
         <style>
-            .alert-container {
+            body {
+                font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
                 background: #1A1F25;
-                border: 1px solid #2D3748;
-                border-radius: 8px;
+                color: #A0AEC0;
+                line-height: 1.6;
+                margin: 0;
                 padding: 20px;
-                margin: 20px 0;
-                font-family: Arial, sans-serif;
+            }
+            .alert-container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 30px;
+                background: #1A1F25;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             }
             .alert-header {
                 color: #FAFAFA;
                 font-size: 24px;
-                margin-bottom: 15px;
-                border-bottom: 1px solid #2D3748;
-                padding-bottom: 10px;
-            }
-            .alert-timestamp {
-                color: #A0AEC0;
-                font-size: 14px;
                 margin-bottom: 20px;
-            }
-            .alert-list {
-                list-style: none;
-                padding: 0;
-                margin: 0;
-            }
-            .alert-item {
-                background: #2D3748;
-                border-radius: 6px;
-                padding: 15px;
-                margin-bottom: 10px;
-                color: #FAFAFA;
-            }
-            .alert-title {
-                font-size: 18px;
-                font-weight: bold;
-                margin-bottom: 10px;
-            }
-            .metric-change {
+                padding-bottom: 15px;
+                border-bottom: 2px solid #2D3748;
                 display: flex;
-                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+            }
+            .alert-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin-top: 20px;
+            }
+            .alert-card {
+                background: #2D3748;
+                border-radius: 8px;
+                padding: 20px;
+                transition: transform 0.2s;
+            }
+            .alert-card:hover {
+                transform: translateY(-2px);
+            }
+            .alert-metric {
+                color: #FAFAFA;
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .alert-value {
+                font-family: 'SF Mono', 'Consolas', monospace;
+                font-size: 16px;
                 margin-top: 10px;
             }
-            .change-indicator {
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            .change-negative { background: #38A169; color: #FAFAFA; }
-            .change-positive { background: #E53E3E; color: #FAFAFA; }
-            .metric-details {
-                color: #A0AEC0;
+            .alert-change {
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 12px;
                 font-size: 14px;
-                margin-top: 8px;
+                margin-top: 10px;
+            }
+            .alert-increase {
+                background: #F56565;
+                color: #FAFAFA;
+            }
+            .alert-decrease {
+                background: #48BB78;
+                color: #FAFAFA;
             }
         </style>
         """
-        
+
+        alert_cards = []
+        for alert in alerts:
+            direction = "increased" if alert['change'] > 0 else "decreased"
+            change_class = "alert-increase" if alert['change'] > 0 else "alert-decrease"
+            icon = "📈" if alert['change'] > 0 else "📉"
+            
+            alert_cards.append(f"""
+                <div class="alert-card">
+                    <div class="alert-metric">
+                        {icon} {alert['metric'].replace('_', ' ').title()}
+                    </div>
+                    <div class="alert-value">
+                        Previous: {alert['previous']}<br>
+                        Current: {alert['current']}
+                    </div>
+                    <div class="alert-change {change_class}">
+                        {direction} by {abs(alert['change'])}
+                    </div>
+                </div>
+            """)
+
         template = f"""
-        {css_styles}
+        {css}
         <div class="alert-container">
-            <h2 class="alert-header">⚠️ SonarCloud Metric Change Alert</h2>
-            <div class="alert-timestamp">
-                Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+            <div class="alert-header">
+                ⚠️ SonarCloud Metric Change Alert
             </div>
-            <p>The following significant changes have been detected:</p>
-            <ul class="alert-list">
-            {{alert_items}}
-            </ul>
+            <div class="alert-grid">
+                {"".join(alert_cards)}
+            </div>
         </div>
         """
-        
-        alert_items = []
-        for alert in alerts:
-            metric_name = alert['metric'].replace('_', ' ').title()
-            is_improvement = (
-                (alert['change'] < 0 and alert['metric'] not in ['coverage']) or
-                (alert['change'] > 0 and alert['metric'] in ['coverage'])
-            )
-            change_class = 'change-negative' if is_improvement else 'change-positive'
-            change_symbol = '↓' if alert['change'] < 0 else '↑'
-            
-            alert_items.append(f"""
-                <li class="alert-item">
-                    <div class="alert-title">{metric_name}</div>
-                    <div class="metric-change">
-                        <span>Change: 
-                            <span class="change-indicator {change_class}">
-                                {change_symbol} {abs(alert['change']):.1f}
-                            </span>
-                        </span>
-                        <span>
-                            {abs(alert['change_percent']):.1f}%
-                        </span>
-                    </div>
-                    <div class="metric-details">
-                        Previous: {alert['previous']:.1f} → Current: {alert['current']:.1f}
-                        (Threshold: {alert['threshold']})
-                    </div>
-                </li>
-            """)
-        
-        return template.format(alert_items="\n".join(alert_items))
+        return template
