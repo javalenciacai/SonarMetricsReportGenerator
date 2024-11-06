@@ -5,8 +5,10 @@ import json
 from database.schema import execute_query
 from services.report_generator import ReportGenerator
 from services.scheduler import SchedulerService
+import streamlit.components.v1 as components
 
 def display_email_configuration():
+    """Display email configuration status"""
     st.markdown("### ✉️ Email Configuration")
     
     smtp_server = os.getenv('SMTP_SERVER')
@@ -105,6 +107,22 @@ def delete_report_schedule(schedule_id):
     except Exception as e:
         st.error(f"Error deleting report schedule: {str(e)}")
         return False
+
+def render_report_preview(html_content):
+    """Render HTML report with proper styling"""
+    wrapper_html = f"""
+    <div style="
+        background-color: #1A1F25;
+        border-radius: 12px;
+        padding: 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    ">
+        {html_content}
+    </div>
+    """
+    components.html(wrapper_html, height=800, scrolling=True)
 
 def display_automated_reports():
     """Display the automated reports management interface with modern tech aesthetics"""
@@ -225,50 +243,6 @@ def display_automated_reports():
         .stTabs [aria-selected="true"] {
             background-color: #4A5568 !important;
             border-radius: 8px !important;
-        }
-        
-        /* Metric Grid Styles */
-        .metric-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        .metric-card {
-            background: #2D3748;
-            padding: 20px;
-            border-radius: 10px;
-            transition: all 0.2s ease;
-        }
-        .metric-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
-        .metric-value {
-            font-family: 'SF Mono', 'Consolas', monospace;
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #FAFAFA;
-        }
-        .metric-label {
-            color: #A0AEC0;
-            font-size: 0.9rem;
-            margin-top: 5px;
-        }
-        
-        /* Loading Spinner */
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .loading-spinner {
-            width: 30px;
-            height: 30px;
-            border: 3px solid rgba(160, 174, 192, 0.1);
-            border-top: 3px solid #4A5568;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -409,7 +383,7 @@ def display_automated_reports():
         with col2:
             preview_format = st.selectbox(
                 "Select Format 📄",
-                ["HTML", "PDF", "CSV"],
+                ["HTML"],
                 help="Choose the format for the preview"
             )
         
@@ -428,71 +402,19 @@ def display_automated_reports():
                         st.markdown("""
                             <div class="tech-card">
                                 <h4 class="tech-header">Preview Output</h4>
+                            </div>
                         """, unsafe_allow_html=True)
-                        st.markdown(report, unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
                         
-                        st.download_button(
-                            "📥 Download Preview",
-                            report,
-                            file_name=f"report_preview.{preview_format.lower()}",
-                            mime=f"text/{preview_format.lower()}"
-                        )
+                        render_report_preview(report)
                     else:
-                        st.warning("⚠️ No data available for preview")
+                        st.warning("No data available for preview")
                 except Exception as e:
-                    st.error(f"❌ Error generating preview: {str(e)}")
+                    st.error(f"Error generating preview: {str(e)}")
     
     with tab3:
         st.markdown("""
             <div class="tech-card">
-                <h3 class="tech-header">Threshold Configuration</h3>
+                <h3 class="tech-header">Configuration Settings</h3>
+                <p>Configure email settings and report preferences in your environment variables.</p>
             </div>
         """, unsafe_allow_html=True)
-        
-        with st.form("threshold_config"):
-            st.markdown("""
-                <div class="metric-grid">
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                bugs_threshold = st.number_input(
-                    "🐛 Bugs Threshold",
-                    min_value=1,
-                    value=5,
-                    help="Alert when bugs increase by this amount"
-                )
-                vulnerabilities_threshold = st.number_input(
-                    "⚠️ Vulnerabilities Threshold",
-                    min_value=1,
-                    value=3,
-                    help="Alert when vulnerabilities increase by this amount"
-                )
-                code_smells_threshold = st.number_input(
-                    "🔍 Code Smells Threshold",
-                    min_value=1,
-                    value=10,
-                    help="Alert when code smells increase by this amount"
-                )
-            
-            with col2:
-                coverage_threshold = st.number_input(
-                    "📊 Coverage Change Threshold (%)",
-                    min_value=1,
-                    value=5,
-                    help="Alert when coverage changes by this percentage"
-                )
-                duplication_threshold = st.number_input(
-                    "📝 Duplication Change Threshold (%)",
-                    min_value=1,
-                    value=5,
-                    help="Alert when duplication changes by this percentage"
-                )
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            if st.form_submit_button("💾 Save Thresholds", type="primary"):
-                with st.spinner("Saving thresholds..."):
-                    st.success("✅ Thresholds updated successfully")
