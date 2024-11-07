@@ -96,6 +96,7 @@ def update_entity_metrics(entity_type, entity_id):
             try:
                 # Get existing project data first
                 project_data = metrics_processor.get_latest_metrics(entity_id)
+                project_name = project_data.get('name', '') if project_data else ''
                 
                 try:
                     metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
@@ -103,8 +104,8 @@ def update_entity_metrics(entity_type, entity_id):
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                         logger.debug(f"[{execution_id}] Retrieved metrics: {list(metrics_dict.keys())}")
                         
-                        # Reset consecutive failures on successful update
-                        success = metrics_processor.store_metrics(entity_id, "", metrics_dict, reset_failures=True)
+                        # Reset consecutive failures on successful update and preserve project name
+                        success = metrics_processor.store_metrics(entity_id, project_name, metrics_dict, reset_failures=True)
                         if success:
                             metrics_summary['updated_count'] += 1
                             metrics_summary['status'] = 'success'
