@@ -112,9 +112,9 @@ def sync_all_projects():
             return False, "Organization not set or invalid"
         sonar_api.organization = organization
 
-        # Continue with fetching and updating projects
+        # Get existing projects with their names
         query = '''
-        SELECT repo_key
+        SELECT repo_key, name
         FROM repositories
         WHERE is_active = true AND is_marked_for_deletion = false;
         '''
@@ -122,18 +122,24 @@ def sync_all_projects():
         if not result:
             return False, 'No active projects found'
         
+        # Create a mapping of repo_key to existing names
+        existing_names = {row[0]: row[1] for row in result}
+        
         success_count = 0
         failed_count = 0
         
-        for row in result:
+        for repo_key, existing_name in existing_names.items():
             try:
-                success = update_entity_metrics('repository', row[0])
+                # Use existing name when updating metrics
+                success = update_entity_metrics('repository', repo_key, preserve_name=True)
                 if success:
                     success_count += 1
+                    logger.info(f'Successfully updated project {existing_name} ({repo_key})')
                 else:
                     failed_count += 1
+                    logger.error(f'Failed to update project {existing_name} ({repo_key})')
             except Exception as e:
-                logger.error(f'Error updating project {row[0]}: {str(e)}')
+                logger.error(f'Error updating project {existing_name} ({repo_key}): {str(e)}')
                 failed_count += 1
         
         return True, f'Updated {success_count} projects successfully, {failed_count} failed'

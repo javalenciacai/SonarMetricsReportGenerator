@@ -665,3 +665,66 @@
 2024-11-07 03:06:39,810 - services.metrics_updater - INFO - [20241107_030639_repository_navisafit_RouteTrackingT1.AzureFunctions] Starting metrics update execution
 2024-11-07 03:06:40,148 - services.metrics_updater - INFO - [20241107_030639_repository_navisafit_RouteTrackingT1.AzureFunctions] Fetching metrics for repository: navisafit_RouteTrackingT1.AzureFunctions
 2024-11-07 03:06:41,733 - services.metrics_updater - INFO - [20241107_030639_repository_navisafit_RouteTrackingT1.AzureFunctions] Successfully updated repository metrics
+2024-11-07 12:42:20,098 - services.metrics_updater - INFO - [20241107_124220_repository_navisafit_AlertManagement] Starting metrics update execution
+2024-11-07 12:42:20,525 - services.metrics_updater - INFO - [20241107_124220_repository_navisafit_AlertManagement] Fetching metrics for repository: navisafit_AlertManagement
+2024-11-07 12:42:22,085 - services.metrics_updater - INFO - [20241107_124220_repository_navisafit_AlertManagement] Successfully updated repository metrics
+2024-11-07 12:42:22,086 - services.metrics_updater - INFO - [20241107_124222_repository_navisafit_CentroControl.Functions.Timer] Starting metrics update execution
+2024-11-07 12:42:22,439 - services.metrics_updater - INFO - [20241107_124222_repository_navisafit_CentroControl.Functions.Timer] Fetching metrics for repository: navisafit_CentroControl.Functions.Timer
+2024-11-07 12:42:23,989 - services.metrics_updater - INFO - [20241107_124222_repository_navisafit_CentroControl.Functions.Timer] Successfully updated repository metrics
+2024-11-07 12:42:23,989 - services.metrics_updater - INFO - [20241107_124223_repository_navisafit_Cartera] Starting metrics update execution
+2024-11-07 12:42:24,340 - services.metrics_updater - INFO - [20241107_124223_repository_navisafit_Cartera] Fetching metrics for repository: navisafit_Cartera
+2024-11-07 12:42:25,901 - services.metrics_updater - INFO - [20241107_124223_repository_navisafit_Cartera] Successfully updated repository metrics
+2024-11-07 12:42:25,902 - services.metrics_updater - INFO - [20241107_124225_repository_navisafit_CentroControl.API] Starting metrics update execution
+2024-11-07 12:42:26,280 - services.metrics_updater - INFO - [20241107_124225_repository_navisafit_CentroControl.API] Fetching metrics for repository: navisafit_CentroControl.API
+2024-11-07 12:42:27,874 - services.metrics_updater - INFO - [20241107_124225_repository_navisafit_CentroControl.API] Successfully updated repository metrics
+2024-11-07 12:42:27,875 - services.metrics_updater - INFO - [20241107_124227_repository_navisafit_CentroControl.Functions] Starting metrics update execution
+2024-11-07 12:42:28,227 - services.metrics_updater - INFO - [20241107_124227_repository_navisafit_CentroControl.Functions] Fetching metrics for repository: navisafit_CentroControl.Functions
+2024-11-07 12:42:29,762 - services.metrics_updater - INFO - [20241107_124227_repository_navisafit_CentroControl.Functions] Successfully updated repository metrics
+2024-11-07 12:42:29,763 - services.metrics_updater - INFO - [20241107_124229_repository_navisafit_GoApp_Test] Starting metrics update execution
+2024-11-07 12:42:30,120 - services.metrics_updater - INFO - [20241107_124229_repository_navisafit_GoApp_Test] Fetching metrics for repository: navisafit_GoApp_Test
+2024-11-07 12:42:31,639 - services.metrics_updater - INFO - [20241107_124229_repository_navisafit_GoApp_Test] Successfully updated repository metrics
+2024-11-07 12:42:31,640 - services.metrics_updater - INFO - [20241107_124231_repository_navisafit_GoApp_Web_API] Starting metrics update execution
+2024-11-07 12:42:32,006 - services.metrics_updater - INFO - [20241107_124231_repository_navisafit_GoApp_Web_API] Fetching metrics for repository: navisafit_GoApp_Web_API
+2024-11-07 12:42:33,572 - services.metrics_updater - INFO - [20241107_124231_repository_navisafit_GoApp_Web_API] Successfully updated repository metrics
+2024-11-07 12:42:33,574 - services.metrics_updater - INFO - [20241107_124233_repository_navisafit_GoApp_Web_Front] Starting metrics update execution
+2024-11-07 12:42:33,916 - services.metrics_updater - INFO - [20241107_124233_repository_navisafit_GoApp_Web_Front] Fetching metrics for repository: navisafit_GoApp_Web_Front
+2024-11-07 12:42:35,443 - services.metrics_updater - INFO - [20241107_124233_repository_navisafit_GoApp_Web_Front] Successfully updated repository metrics
+2024-11-07 12:42:35,444 - services.metrics_updater - INFO - [20241107_124235_repository_navisafit_Navicare.ATHWebServices] Starting metrics update execution
+2024-11-07 12:42:35,795 - services.metrics_updater - INFO - [20241107_124235_repository_navisafit_Navicare.ATHWebServices] Fetching metrics for repository: navisafit_Navicare.ATHWebServices
+2024-11-07 12:42:37,349 - services.metrics_updater - INFO - [20241107_124235_repository_navisafit_Navicare.ATHWebServices] Successfully updated repository metrics
+2024-11-07 12:42:37,350 - services.metrics_updater - INFO - [20241107_124237_repository_navisafit_Navicare.MicroServicios] Starting metrics update execution
+2024-11-07 12:42:37,695 - services.metrics_updater - INFO - [20241107_124237_repository_navisafit_Navicare.MicroServicios] Fetching metrics for repository: navisafit_Navicare.MicroServicios
+2024-11-07 12:42:39,257 - services.metrics_updater - INFO - [20241107_124237_repository_navisafit_Navicare.MicroServicios] Successfully updated repository metrics
+2024-11-07 12:42:39,258 - services.metrics_updater - INFO - [20241107_124239_repository_navisafit_Odoo.Api] Starting metrics update execution
+2024-11-07 12:42:39,606 - services.metrics_updater - INFO - [20241107_124239_repository_navisafit_Odoo.Api] Fetching metrics for repository: navisafit_Odoo.Api
+2024-11-07 12:42:41,143 - services.metrics_updater - INFO - [20241107_124239_repository_navisafit_Odoo.Api] Successfully updated repository metrics
+2024-11-07 12:42:41,144 - services.metrics_updater - INFO - [20241107_124241_repository_navisafit_OnCommandConnect.Functions] Starting metrics update execution
+2024-11-07 12:42:41,513 - services.metrics_updater - INFO - [20241107_124241_repository_navisafit_OnCommandConnect.Functions] Fetching metrics for repository: navisafit_OnCommandConnect.Functions
+2024-11-07 12:42:43,133 - services.metrics_updater - INFO - [20241107_124241_repository_navisafit_OnCommandConnect.Functions] Successfully updated repository metrics
+2024-11-07 12:42:43,133 - services.metrics_updater - INFO - [20241107_124243_repository_navisafit_GoApp_Payment_API] Starting metrics update execution
+2024-11-07 12:42:43,476 - services.metrics_updater - INFO - [20241107_124243_repository_navisafit_GoApp_Payment_API] Fetching metrics for repository: navisafit_GoApp_Payment_API
+2024-11-07 12:42:45,049 - services.metrics_updater - INFO - [20241107_124243_repository_navisafit_GoApp_Payment_API] Successfully updated repository metrics
+2024-11-07 12:42:45,049 - services.metrics_updater - INFO - [20241107_124245_repository_navisafit_GoApp_Navisaf] Starting metrics update execution
+2024-11-07 12:42:45,409 - services.metrics_updater - INFO - [20241107_124245_repository_navisafit_GoApp_Navisaf] Fetching metrics for repository: navisafit_GoApp_Navisaf
+2024-11-07 12:42:46,987 - services.metrics_updater - INFO - [20241107_124245_repository_navisafit_GoApp_Navisaf] Successfully updated repository metrics
+2024-11-07 12:42:46,987 - services.metrics_updater - INFO - [20241107_124246_repository_navisafit_GoApp_Movil_API] Starting metrics update execution
+2024-11-07 12:42:47,337 - services.metrics_updater - INFO - [20241107_124246_repository_navisafit_GoApp_Movil_API] Fetching metrics for repository: navisafit_GoApp_Movil_API
+2024-11-07 12:42:48,892 - services.metrics_updater - INFO - [20241107_124246_repository_navisafit_GoApp_Movil_API] Successfully updated repository metrics
+2024-11-07 12:42:48,892 - services.metrics_updater - INFO - [20241107_124248_repository_navisafit_OnCommandConnect.Movil] Starting metrics update execution
+2024-11-07 12:42:49,244 - services.metrics_updater - INFO - [20241107_124248_repository_navisafit_OnCommandConnect.Movil] Fetching metrics for repository: navisafit_OnCommandConnect.Movil
+2024-11-07 12:42:50,772 - services.metrics_updater - INFO - [20241107_124248_repository_navisafit_OnCommandConnect.Movil] Successfully updated repository metrics
+2024-11-07 12:42:50,772 - services.metrics_updater - INFO - [20241107_124250_repository_navisafit_GoApp_Push_Notification] Starting metrics update execution
+2024-11-07 12:42:51,134 - services.metrics_updater - INFO - [20241107_124250_repository_navisafit_GoApp_Push_Notification] Fetching metrics for repository: navisafit_GoApp_Push_Notification
+2024-11-07 12:42:52,676 - services.metrics_updater - INFO - [20241107_124250_repository_navisafit_GoApp_Push_Notification] Successfully updated repository metrics
+2024-11-07 12:42:52,677 - services.metrics_updater - INFO - [20241107_124252_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 12:42:53,055 - services.metrics_updater - INFO - [20241107_124252_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 12:42:54,626 - services.metrics_updater - INFO - [20241107_124252_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 12:42:54,627 - services.metrics_updater - INFO - [20241107_124254_repository_navisafit_RouteTrackingT1.AzureFunctions] Starting metrics update execution
+2024-11-07 12:42:54,987 - services.metrics_updater - INFO - [20241107_124254_repository_navisafit_RouteTrackingT1.AzureFunctions] Fetching metrics for repository: navisafit_RouteTrackingT1.AzureFunctions
+2024-11-07 12:42:56,567 - services.metrics_updater - INFO - [20241107_124254_repository_navisafit_RouteTrackingT1.AzureFunctions] Successfully updated repository metrics
+2024-11-07 12:44:22,281 - services.metrics_updater - INFO - [20241107_124422_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 12:44:22,687 - services.metrics_updater - INFO - [20241107_124422_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 12:44:24,264 - services.metrics_updater - INFO - [20241107_124422_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 12:44:24,893 - services.metrics_updater - INFO - [20241107_124424_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 12:44:25,244 - services.metrics_updater - INFO - [20241107_124424_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 12:44:26,818 - services.metrics_updater - INFO - [20241107_124424_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
