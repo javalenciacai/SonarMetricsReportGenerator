@@ -51,7 +51,6 @@ def get_all_projects_data():
         r.is_active,
         r.is_marked_for_deletion,
         r.update_interval,
-        r.last_seen AT TIME ZONE 'UTC' as last_seen,
         m.bugs,
         m.vulnerabilities,
         m.code_smells,
@@ -62,9 +61,7 @@ def get_all_projects_data():
         m.timestamp
     FROM repositories r
     LEFT JOIN LatestMetrics m ON m.repository_id = r.id AND m.rn = 1
-    ORDER BY 
-        r.is_active DESC,
-        r.name ASC;
+    ORDER BY r.name;
     """
     
     try:
@@ -75,42 +72,25 @@ def get_all_projects_data():
             project_data = dict(row)
             project_key = project_data['repo_key']
             
-            # Format project name with status and proper spacing
-            if project_data['is_marked_for_deletion']:
-                status_indicator = '🗑️\u00A0'  # Using non-breaking space
-            elif not project_data['is_active']:
-                status_indicator = '⚠️\u00A0'
-            else:
-                status_indicator = '✅\u00A0'
-            
-            formatted_name = f"{status_indicator}{project_data['name']}"
-            
-            # Always include project data with formatted name
-            projects_data[project_key] = {
-                'name': formatted_name,
-                'display_name': project_data['name'],  # Original name without status
-                'is_active': project_data['is_active'],
-                'is_marked_for_deletion': project_data['is_marked_for_deletion'],
-                'update_interval': project_data['update_interval'],
-                'last_seen': project_data['last_seen'],
-                'metrics': None  # Initialize metrics as None
-            }
-            
-            # Add metrics if they exist
+            # Only include projects with metrics data
             if project_data['bugs'] is not None:
-                projects_data[project_key]['metrics'] = {
+                metrics = {
                     'bugs': float(project_data['bugs']),
                     'vulnerabilities': float(project_data['vulnerabilities']),
                     'code_smells': float(project_data['code_smells']),
                     'coverage': float(project_data['coverage']),
                     'duplicated_lines_density': float(project_data['duplicated_lines_density']),
                     'ncloc': float(project_data['ncloc']),
-                    'sqale_index': float(project_data['sqale_index']),
-                    'timestamp': project_data['timestamp']
+                    'sqale_index': float(project_data['sqale_index'])
+                }
+                
+                projects_data[project_key] = {
+                    'name': project_data['name'],
+                    'metrics': metrics,
+                    'is_active': project_data['is_active'],
+                    'is_marked_for_deletion': project_data['is_marked_for_deletion']
                 }
                 logger.info(f"Retrieved metrics for project: {project_key}")
-            else:
-                logger.info(f"No metrics available for project: {project_key}")
         
         return projects_data
         
@@ -169,88 +149,6 @@ def main():
             layout="wide",
             initial_sidebar_state="expanded"
         )
-
-        # Add custom CSS for dark mode styling
-        st.markdown("""
-            <style>
-            /* Dark mode styles */
-            .stSelectbox div[data-baseweb="select"] {
-                background-color: #1E2530 !important;
-                border-color: #2D3748 !important;
-            }
-            
-            .stSelectbox div[data-baseweb="select"]:hover {
-                border-color: #4A5568 !important;
-            }
-            
-            .stSelectbox div[data-baseweb="select"] div {
-                color: #E2E8F0 !important;
-            }
-            
-            .stSelectbox div[data-baseweb="select"] [role="listbox"] {
-                background-color: #1E2530 !important;
-                border-color: #2D3748 !important;
-            }
-            
-            .stSelectbox div[data-baseweb="select"] [role="option"] {
-                background-color: #1E2530 !important;
-                color: #E2E8F0 !important;
-                padding: 8px 12px !important;
-            }
-            
-            .stSelectbox div[data-baseweb="select"] [role="option"]:hover {
-                background-color: #2D3748 !important;
-            }
-            
-            /* Project status indicators with improved spacing */
-            .stSelectbox div[data-baseweb="select"] [role="option"] {
-                display: flex !important;
-                align-items: center !important;
-                gap: 8px !important;
-            }
-            
-            .stSelectbox div[data-baseweb="select"] [role="option"] span {
-                display: inline-flex !important;
-                align-items: center !important;
-                color: #E2E8F0 !important;
-            }
-            
-            /* Status indicator colors */
-            .project-status-active {
-                color: #48BB78 !important;
-                margin-right: 8px !important;
-            }
-            
-            .project-status-inactive {
-                color: #ECC94B !important;
-                margin-right: 8px !important;
-            }
-            
-            .project-status-deletion {
-                color: #F56565 !important;
-                margin-right: 8px !important;
-            }
-            
-            /* Selected option styling */
-            .stSelectbox div[data-baseweb="select"] [aria-selected="true"] {
-                background-color: #2D3748 !important;
-            }
-            
-            /* Dropdown arrow color */
-            .stSelectbox div[data-baseweb="select"] svg {
-                color: #A0AEC0 !important;
-            }
-            
-            /* Checkbox styling */
-            .stCheckbox label {
-                color: #E2E8F0 !important;
-            }
-            
-            .stCheckbox label:hover {
-                color: #FFFFFF !important;
-            }
-            </style>
-        """, unsafe_allow_html=True)
 
         if 'initialized' not in st.session_state:
             st.session_state.initialized = True
@@ -322,8 +220,24 @@ def main():
         elif view_mode == "Project Groups":
             manage_project_groups(sonar_api)
         else:
-            all_projects_data = get_all_projects_data()
-            
+            all_projects_status = metrics_processor.get_project_status()
+            project_names = {}
+            project_status = {}
+
+            for project in all_projects_status:
+                status_prefix = "✅"
+                if not project['is_active']:
+                    status_prefix = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
+                project_names[project['repo_key']] = f"{status_prefix} {project['name']}"
+                project_status[project['repo_key']] = {
+                    'name': project['name'],
+                    'is_active': project['is_active'],
+                    'is_marked_for_deletion': project.get('is_marked_for_deletion', False),
+                    'latest_metrics': project.get('latest_metrics', {})
+                }
+
+            project_names['all'] = "📊 All Projects"
+
             with st.sidebar:
                 st.markdown("### 🔍 Project Selection")
                 with st.form(key="project_filter_form"):
@@ -336,24 +250,15 @@ def main():
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
 
-            # Filter projects based on active/inactive status
-            filtered_projects = {k: v for k, v in all_projects_data.items()}
+            filtered_projects = {k: v for k, v in project_names.items()}
             if not show_inactive:
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
-                                  if v['is_active'] or k == 'all'}
-
-            # Add "All Projects" option
-            filtered_projects['all'] = {
-                'name': "📊 All Projects",
-                'display_name': "All Projects",
-                'is_active': True,
-                'metrics': None
-            }
+                                if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
             selected_project = st.sidebar.selectbox(
                 "Select Project",
                 options=list(filtered_projects.keys()),
-                format_func=lambda x: filtered_projects[x]['name'],
+                format_func=lambda x: filtered_projects.get(x, x),
                 key='selected_project'
             )
 
@@ -370,29 +275,45 @@ def main():
                             else:
                                 st.error(f"❌ Sync failed: {message}")
                 
-                if filtered_projects:
-                    display_multi_project_metrics(filtered_projects)
-                    plot_multi_project_comparison(filtered_projects)
-                    create_download_report(filtered_projects)
+                projects_data = get_all_projects_data()
+                
+                if projects_data:
+                    display_multi_project_metrics(projects_data)
+                    plot_multi_project_comparison(projects_data)
+                    create_download_report(projects_data)
                 else:
                     st.info("No projects data available")
             
             elif selected_project:
-                project_info = filtered_projects.get(selected_project, {})
-                st.markdown(f"## 📊 Project Dashboard: {project_info['display_name']}")
+                project_info = project_status.get(selected_project, {})
+                st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
                 
                 is_inactive = not project_info.get('is_active', True)
                 
                 current_tab, trends_tab = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
                 
                 with current_tab:
-                    metrics = project_info.get('metrics')
-                    if metrics:
-                        display_current_metrics(metrics)
-                        if not is_inactive:
-                            create_download_report({selected_project: project_info})
+                    if is_inactive:
+                        project_data = metrics_processor.get_latest_metrics(selected_project)
+                        if project_data:
+                            metrics_dict = {k: float(v) for k, v in project_data.items() 
+                                        if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
+                            display_current_metrics(metrics_dict)
                     else:
-                        st.warning("No metrics available for this project")
+                        try:
+                            metrics = metrics_processor.get_latest_metrics(selected_project)
+                            if metrics:
+                                metrics_dict = {k: float(v) for k, v in metrics.items() 
+                                            if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
+                                display_current_metrics(metrics_dict)
+                                create_download_report({selected_project: {
+                                    'name': project_info['name'],
+                                    'metrics': metrics_dict
+                                }})
+                            else:
+                                st.warning("No metrics available for this project")
+                        except Exception as e:
+                            st.error(f"Error displaying project data: {str(e)}")
 
                 with trends_tab:
                     historical_data = metrics_processor.get_historical_data(selected_project)

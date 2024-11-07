@@ -145,15 +145,17 @@ def display_current_metrics(metrics_data):
     
     with col1:
         st.markdown('<h4 style="color: #FAFAFA;">📏 Project Size & Debt</h4>', unsafe_allow_html=True)
+        ncloc = int(metrics_data.get('ncloc', 0))
+        sqale_index = int(metrics_data.get('sqale_index', 0))
         create_metric_card(
             "Lines of Code",
-            format_code_lines(metrics_data.get('ncloc', 0)),
+            format_code_lines(ncloc),
             "📏",
             "Total number of lines of code (excluding comments and blank lines)"
         )
         create_metric_card(
             "Technical Debt",
-            format_technical_debt(metrics_data.get('sqale_index', 0)),
+            format_technical_debt(sqale_index),
             "⏱️",
             "Estimated time to fix all code smells"
         )
@@ -304,43 +306,22 @@ def display_multi_project_metrics(projects_data):
     
     # Process all projects and calculate totals
     metrics_list = []
-    for project_key, project_info in projects_data.items():
-        if project_key == 'all':  # Skip the "All Projects" option
-            continue
-            
-        # Initialize base metrics if they don't exist
-        if project_info.get('metrics') is None:
-            metrics = {
-                'project_key': project_key,
-                'project_name': project_info['display_name'],
-                'is_active': project_info['is_active'],
-                'is_marked_for_deletion': project_info.get('is_marked_for_deletion', False),
-                'bugs': 0,
-                'vulnerabilities': 0,
-                'code_smells': 0,
-                'coverage': 0,
-                'duplicated_lines_density': 0,
-                'ncloc': 0,
-                'sqale_index': 0
-            }
-        else:
-            metrics = project_info['metrics'].copy()
-            metrics['project_key'] = project_key
-            metrics['project_name'] = project_info['display_name']
-            metrics['is_active'] = project_info['is_active']
-            metrics['is_marked_for_deletion'] = project_info.get('is_marked_for_deletion', False)
-            
-            # Add to totals for projects with metrics
-            for metric in total_metrics.keys():
-                if metric in metrics:
-                    total_metrics[metric] += float(metrics[metric])
-        
-        # Add quality score
+    for project_key, data in projects_data.items():
+        metrics = data['metrics']
+        metrics['project_key'] = project_key
+        metrics['project_name'] = data['name']
+        metrics['is_active'] = data.get('is_active', True)
+        metrics['is_marked_for_deletion'] = data.get('is_marked_for_deletion', False)
         metrics['quality_score'] = analyzer.calculate_quality_score(metrics)
         
         # Get update interval and last update
         metrics['update_interval'] = get_project_update_interval(project_key)
         metrics['last_update'] = get_last_update_timestamp(project_key)
+        
+        # Add to totals
+        for metric in total_metrics.keys():
+            if metric in metrics:
+                total_metrics[metric] += float(metrics[metric])
         
         metrics_list.append(metrics)
     
@@ -371,12 +352,11 @@ def display_multi_project_metrics(projects_data):
     
     # Sort projects by quality score
     df = pd.DataFrame(metrics_list)
-    if not df.empty:
-        df = df.sort_values('quality_score', ascending=False)
+    df = df.sort_values('quality_score', ascending=False)
     
     # Display individual project cards
     for _, row in df.iterrows():
-        status_icon = "🗑️" if row.get('is_marked_for_deletion') else "⚠️" if not row['is_active'] else "✅"
+        status_icon = "🗑️" if row['is_marked_for_deletion'] else "⚠️" if not row['is_active'] else "✅"
         status_class = "status-active" if row['is_active'] else "status-inactive"
         status_text = "Active" if row['is_active'] else "Inactive"
         
@@ -385,9 +365,8 @@ def display_multi_project_metrics(projects_data):
         
         st.markdown(f"""
             <div class="project-card">
-                <h3 style="color: #FAFAFA; display: flex; align-items: center; gap: 0.5rem;">
-                    <span>{status_icon}</span>
-                    <span>{row['project_name']}</span>
+                <h3 style="color: #FAFAFA;">
+                    {status_icon} {row['project_name']}
                     <span class="project-status {status_class}">{status_text}</span>
                 </h3>
                 <p style="color: #A0AEC0;">Quality Score: {row['quality_score']:.1f}/100</p>
@@ -454,10 +433,11 @@ def display_metric_trends(historical_data):
     }
     
     for metric, info in metrics.items():
-        if metric not in df.columns:
-            continue
-            
         with st.expander(f"{info['name']} Analysis", expanded=True):
+            if metric not in df.columns:
+                st.warning(f"No data available for {info['name']}")
+                continue
+                
             col1, col2 = st.columns([2, 1])
             
             with col1:
