@@ -72,9 +72,17 @@ def get_all_projects_data():
             project_data = dict(row)
             project_key = project_data['repo_key']
             
-            # Only include projects with metrics data
+            # Always include project data regardless of metrics
+            projects_data[project_key] = {
+                'name': project_data['name'],
+                'is_active': project_data['is_active'],
+                'is_marked_for_deletion': project_data['is_marked_for_deletion'],
+                'metrics': None  # Initialize metrics as None
+            }
+            
+            # Add metrics if they exist
             if project_data['bugs'] is not None:
-                metrics = {
+                projects_data[project_key]['metrics'] = {
                     'bugs': float(project_data['bugs']),
                     'vulnerabilities': float(project_data['vulnerabilities']),
                     'code_smells': float(project_data['code_smells']),
@@ -83,14 +91,9 @@ def get_all_projects_data():
                     'ncloc': float(project_data['ncloc']),
                     'sqale_index': float(project_data['sqale_index'])
                 }
-                
-                projects_data[project_key] = {
-                    'name': project_data['name'],
-                    'metrics': metrics,
-                    'is_active': project_data['is_active'],
-                    'is_marked_for_deletion': project_data['is_marked_for_deletion']
-                }
                 logger.info(f"Retrieved metrics for project: {project_key}")
+            else:
+                logger.info(f"No metrics available for project: {project_key}")
         
         return projects_data
         
