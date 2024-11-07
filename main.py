@@ -21,12 +21,22 @@ from database.connection import execute_query
 import logging
 from datetime import datetime, timezone, timedelta
 import requests
+import html
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def format_project_name(name, is_active=True, is_marked_for_deletion=False):
+    """Format project name with consistent status indicators"""
+    name = html.escape(name)
+    if not is_active:
+        status_prefix = "🗑️" if is_marked_for_deletion else "⚠️"
+    else:
+        status_prefix = "✅"
+    return f"{status_prefix} {name}"
 
 def get_all_projects_data():
     """Get all projects data from database with latest metrics"""
@@ -85,7 +95,7 @@ def get_all_projects_data():
                 }
                 
                 projects_data[project_key] = {
-                    'name': project_data['name'],
+                    'name': html.escape(project_data['name']),
                     'metrics': metrics,
                     'is_active': project_data['is_active'],
                     'is_marked_for_deletion': project_data['is_marked_for_deletion']
@@ -225,12 +235,14 @@ def main():
             project_status = {}
 
             for project in all_projects_status:
-                status_prefix = "✅"
-                if not project['is_active']:
-                    status_prefix = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
-                project_names[project['repo_key']] = f"{status_prefix} {project['name']}"
+                formatted_name = format_project_name(
+                    project['name'],
+                    project['is_active'],
+                    project.get('is_marked_for_deletion', False)
+                )
+                project_names[project['repo_key']] = formatted_name
                 project_status[project['repo_key']] = {
-                    'name': project['name'],
+                    'name': html.escape(project['name']),
                     'is_active': project['is_active'],
                     'is_marked_for_deletion': project.get('is_marked_for_deletion', False),
                     'latest_metrics': project.get('latest_metrics', {})
