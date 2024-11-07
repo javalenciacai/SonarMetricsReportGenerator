@@ -1,3 +1,4 @@
+import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
@@ -5,6 +6,8 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MI
 from datetime import datetime, timezone
 import logging
 from services.report_generator import ReportGenerator
+from database.schema import execute_query, get_update_preferences
+import json
 
 class SchedulerService:
     def __init__(self):
@@ -34,7 +37,6 @@ class SchedulerService:
                 self.logger.error(f"Job details: Type: {job_info.get('type')}, "
                              f"Entity: {job_info.get('entity_type')} {job_info.get('entity_id')}")
 
-                # Update job status with detailed error information
                 self.job_registry[job_id] = {
                     **job_info,
                     'last_status': 'failed',
@@ -49,9 +51,8 @@ class SchedulerService:
                     }
                 }
 
-                # Handle job retry logic
-                if job_info.get('error_count', 0) < 3:  # Limit retries
-                    retry_interval = 1800  # 30 minutes for report retries
+                if job_info.get('error_count', 0) < 3:
+                    retry_interval = 1800
                     self.logger.info(f"[{timestamp}] Scheduling retry for job {job_id} in {retry_interval} seconds")
                     try:
                         if job_info['type'] == 'report':
@@ -76,7 +77,7 @@ class SchedulerService:
                     'missed_runs': job_info.get('missed_runs', 0) + 1
                 }
 
-            else:  # Successful execution
+            else:
                 if hasattr(event, 'retval'):
                     success, execution_details = event.retval
                 else:
@@ -85,7 +86,6 @@ class SchedulerService:
                 status = 'success' if success else 'failed'
                 self.logger.info(f"[{timestamp}] Job {job_id} executed with status: {status}")
 
-                # Update job registry with execution details
                 self.job_registry[job_id] = {
                     **job_info,
                     'last_status': status,
@@ -100,7 +100,6 @@ class SchedulerService:
                     }
                 }
 
-                # Verify next execution
                 job = self.scheduler.get_job(job_id)
                 if job and job.next_run_time:
                     self.logger.info(f"[{timestamp}] Next execution for {job_id} scheduled at: "
@@ -117,14 +116,58 @@ class SchedulerService:
                 'last_run': timestamp
             }
 
+    def initialize_update_intervals(self):
+        """Initialize update intervals for all repositories from database"""
+        query = """
+        SELECT repo_key, update_interval
+        FROM repositories
+        WHERE is_active = true;
+        """
+        try:
+            result = execute_query(query)
+            if result:
+                for repo_key, interval in result:
+                    job_id = f"update_{repo_key}"
+                    if interval > 0:
+                        self.scheduler.add_job(
+                            self._update_repository_metrics,
+                            IntervalTrigger(seconds=interval, timezone='UTC'),
+                            id=job_id,
+                            name=f"Update {repo_key}",
+                            args=[repo_key],
+                            replace_existing=True
+                        )
+                        self.job_registry[job_id] = {
+                            'type': 'update',
+                            'entity_type': 'repository',
+                            'entity_id': repo_key,
+                            'interval': interval
+                        }
+                        self.logger.info(f"Initialized update job for {repo_key} with {interval}s interval")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error initializing update intervals: {str(e)}")
+            return False
+
+    def _update_repository_metrics(self, repo_key):
+        """Update metrics for a repository"""
+        try:
+            from services.metrics_updater import update_entity_metrics
+            success = update_entity_metrics('repository', repo_key)
+            return success, {"repository": repo_key}
+        except Exception as e:
+            self.logger.error(f"Error updating repository metrics: {str(e)}")
+            return False, {"error": str(e)}
+
     def start(self):
-        """Start the scheduler"""
+        """Start the scheduler with automatic interval initialization"""
         try:
             if not self.scheduler.running:
                 self.scheduler.start()
                 self.logger.info("Scheduler started successfully (UTC)")
                 self.verify_scheduler_state()
                 self._schedule_default_reports()
+                self.initialize_update_intervals()
             return True
         except Exception as e:
             self.logger.error(f"Failed to start scheduler: {str(e)}")
@@ -133,7 +176,6 @@ class SchedulerService:
     def _schedule_default_reports(self):
         """Schedule default daily and weekly reports"""
         try:
-            # Daily report at 1:00 AM UTC
             self.scheduler.add_job(
                 self._generate_daily_report,
                 CronTrigger(hour=1, minute=0, timezone='UTC'),
@@ -142,7 +184,6 @@ class SchedulerService:
                 replace_existing=True
             )
 
-            # Weekly report on Monday at 2:00 AM UTC
             self.scheduler.add_job(
                 self._generate_weekly_report,
                 CronTrigger(day_of_week='mon', hour=2, minute=0, timezone='UTC'),
@@ -151,7 +192,6 @@ class SchedulerService:
                 replace_existing=True
             )
 
-            # Metric change alerts every 4 hours
             self.scheduler.add_job(
                 self._check_metric_changes,
                 IntervalTrigger(hours=4, timezone='UTC'),
@@ -230,7 +270,6 @@ class SchedulerService:
         WHERE report_type = %s AND is_active = true;
         """
         try:
-            from database.schema import execute_query
             result = execute_query(query, (report_type,))
             if result:
                 recipients = set()
