@@ -150,6 +150,78 @@ def main():
             initial_sidebar_state="expanded"
         )
 
+        # Add custom CSS for dark mode styling
+        st.markdown("""
+            <style>
+            /* Dark mode styles */
+            .stSelectbox div[data-baseweb="select"] {
+                background-color: #1E2530 !important;
+                border-color: #2D3748 !important;
+            }
+            
+            .stSelectbox div[data-baseweb="select"]:hover {
+                border-color: #4A5568 !important;
+            }
+            
+            .stSelectbox div[data-baseweb="select"] div {
+                color: #E2E8F0 !important;
+            }
+            
+            .stSelectbox div[data-baseweb="select"] [role="listbox"] {
+                background-color: #1E2530 !important;
+                border-color: #2D3748 !important;
+            }
+            
+            .stSelectbox div[data-baseweb="select"] [role="option"] {
+                background-color: #1E2530 !important;
+                color: #E2E8F0 !important;
+            }
+            
+            .stSelectbox div[data-baseweb="select"] [role="option"]:hover {
+                background-color: #2D3748 !important;
+            }
+            
+            /* Project status indicators */
+            .stSelectbox div[data-baseweb="select"] [role="option"] span {
+                color: #E2E8F0 !important;
+            }
+            
+            /* Active project (✅) */
+            .stSelectbox div[data-baseweb="select"] [role="option"] span:contains("✅") {
+                color: #48BB78 !important;
+            }
+            
+            /* Inactive project (⚠️) */
+            .stSelectbox div[data-baseweb="select"] [role="option"] span:contains("⚠️") {
+                color: #ECC94B !important;
+            }
+            
+            /* Marked for deletion (🗑️) */
+            .stSelectbox div[data-baseweb="select"] [role="option"] span:contains("🗑️") {
+                color: #F56565 !important;
+            }
+            
+            /* Selected option styling */
+            .stSelectbox div[data-baseweb="select"] [aria-selected="true"] {
+                background-color: #2D3748 !important;
+            }
+            
+            /* Dropdown arrow color */
+            .stSelectbox div[data-baseweb="select"] svg {
+                color: #A0AEC0 !important;
+            }
+            
+            /* Checkbox styling */
+            .stCheckbox label {
+                color: #E2E8F0 !important;
+            }
+            
+            .stCheckbox label:hover {
+                color: #FFFFFF !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
         if 'initialized' not in st.session_state:
             st.session_state.initialized = True
             st.session_state.policies_accepted = False
