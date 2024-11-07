@@ -49,26 +49,8 @@ class SonarCloudAPI:
         except Exception as e:
             return False, f"Error validating response: {str(e)}"
 
-    def _check_api_version(self):
-        """Check SonarCloud API version compatibility"""
-        url = f"{SONARCLOUD_API_URL}/server/version"
-        try:
-            response = requests.get(url, headers=self.headers)
-            self._log_request("GET", url, response=response)
-            response.raise_for_status()
-            self.api_version = response.text.strip()
-            return True
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Error checking API version: {str(e)}"
-            if hasattr(e, 'response'):
-                self.logger.error(f"{error_msg}\nAPI Response: {e.response.text}")
-            return False
-
-    def validate_token(self):
-        """Validate the SonarCloud token by making a test API call"""
-        if not self._check_api_version():
-            return False, "Could not verify API version compatibility"
-
+    def _initialize_organization(self):
+        """Initialize organization from user's organizations"""
         url = f"{SONARCLOUD_API_URL}/organizations/search"
         params = {'member': 'true'}
         
@@ -89,21 +71,58 @@ class SonarCloudAPI:
             if not orgs:
                 return False, "No organizations found for this token"
             
+            # Set the first organization as default
             self.organization = orgs[0]['key']
-            return True, "Token validated successfully."
+            return True, f"Organization initialized: {self.organization}"
             
         except requests.exceptions.RequestException as e:
-            error_message = "Failed to validate token. Please check your connection and try again."
-            self.logger.error(f"Token validation error: {str(e)}")
+            error_message = "Failed to initialize organization. Please check your connection and try again."
+            self.logger.error(f"Organization initialization error: {str(e)}")
             if hasattr(e, 'response'):
                 self.logger.error(f"API Response: {e.response.text}")
             return False, error_message
 
+    def _check_api_version(self):
+        """Check SonarCloud API version compatibility"""
+        url = f"{SONARCLOUD_API_URL}/server/version"
+        try:
+            response = requests.get(url, headers=self.headers)
+            self._log_request("GET", url, response=response)
+            
+            if response.status_code == 401:
+                return False, "Invalid token. Please check your SonarCloud token."
+                
+            response.raise_for_status()
+            self.api_version = response.text.strip()
+            return True, f"API version: {self.api_version}"
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Error checking API version: {str(e)}"
+            if hasattr(e, 'response'):
+                self.logger.error(f"{error_msg}\nAPI Response: {e.response.text}")
+            return False, error_msg
+
+    def validate_token(self):
+        """Validate the SonarCloud token and initialize organization"""
+        # First check API version
+        version_valid, version_msg = self._check_api_version()
+        if not version_valid:
+            return False, version_msg
+
+        # Then initialize organization
+        org_valid, org_msg = self._initialize_organization()
+        if not org_valid:
+            return False, org_msg
+
+        self.logger.info(f"Token validated successfully. Organization: {self.organization}")
+        return True, f"Token validated successfully. Using organization: {self.organization}"
+
     def get_projects(self):
         """Get all projects for the current organization"""
         if not self.organization:
-            self.logger.error("Organization not set. Please validate your token first.")
-            return []
+            success, message = self._initialize_organization()
+            if not success:
+                self.logger.error(message)
+                return []
         
         url = f"{SONARCLOUD_API_URL}/projects/search"
         params = {
@@ -135,8 +154,10 @@ class SonarCloudAPI:
     def get_project_metrics(self, project_key):
         """Get metrics for a specific project"""
         if not self.organization:
-            self.logger.error("Organization not set. Please validate your token first.")
-            return []
+            success, message = self._initialize_organization()
+            if not success:
+                self.logger.error(message)
+                return []
 
         metrics = [
             'bugs',

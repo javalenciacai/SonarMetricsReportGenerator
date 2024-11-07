@@ -308,3 +308,18 @@
 2024-10-31 03:47:16,940 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
 2024-10-31 03:47:16,943 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
 2024-10-31 03:47:16,944 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-11-07 18:18:16,176 - services.metrics_updater - INFO - [20241107_181816_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 18:18:16,177 - services.metrics_updater - INFO - [20241107_181816_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 18:18:16,594 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-11-07 18:18:16,595 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-11-07 18:18:16,595 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-11-07 18:18:27,006 - services.metrics_updater - INFO - [20241107_181827_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 18:18:27,006 - services.metrics_updater - INFO - [20241107_181827_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 18:18:27,431 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-11-07 18:18:27,432 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-11-07 18:18:27,432 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
+2024-11-07 18:18:56,226 - services.metrics_updater - INFO - [20241107_181856_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 18:18:56,227 - services.metrics_updater - INFO - [20241107_181856_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 18:18:56,634 - services.metrics_updater - WARNING - API call returned empty response on attempt 1
+2024-11-07 18:18:56,635 - services.metrics_updater - WARNING - API call returned empty response on attempt 2
+2024-11-07 18:18:56,635 - services.metrics_updater - WARNING - API call returned empty response on attempt 3
