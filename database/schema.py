@@ -30,6 +30,21 @@ def initialize_database():
     );
     """
     
+    # Create report schedules table
+    create_report_schedules_table = """
+    CREATE TABLE IF NOT EXISTS report_schedules (
+        id SERIAL PRIMARY KEY,
+        report_type VARCHAR(50) NOT NULL,
+        frequency VARCHAR(20) NOT NULL,
+        recipients JSONB NOT NULL,
+        report_format VARCHAR(10) NOT NULL,
+        next_run_time TIMESTAMP WITH TIME ZONE NOT NULL,
+        last_run TIMESTAMP WITH TIME ZONE,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    
     try:
         # Add consecutive_failures column if it doesn't exist
         add_consecutive_failures = """
@@ -78,6 +93,7 @@ def initialize_database():
         execute_query(add_consecutive_failures)
         execute_query(create_metrics_table)
         execute_query(create_policy_table)
+        execute_query(create_report_schedules_table)
         
         # Update existing timestamp columns to use timezone if they don't already
         migration_queries = [

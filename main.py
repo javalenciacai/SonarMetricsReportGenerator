@@ -15,12 +15,12 @@ from components.visualizations import plot_metrics_history, plot_multi_project_c
 from components.policy_display import show_policies, get_policy_acceptance_status
 from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
+from components.automated_reports import display_automated_reports
 from database.schema import initialize_database, get_update_preferences
 import logging
 from datetime import datetime, timezone
 import requests
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -31,11 +31,9 @@ def update_all_projects_data(sonar_api, metrics_processor):
     """Update metrics for all projects from SonarCloud"""
     logger.info("Starting update for all projects")
     
-    # Get all SonarCloud projects first
     sonar_projects = sonar_api.get_projects()
     project_keys = {p['key']: p['name'] for p in sonar_projects}
     
-    # Get existing projects from database
     existing_projects = metrics_processor.get_project_status()
     for project in existing_projects:
         if project['repo_key'] not in project_keys and project['is_active']:
@@ -44,7 +42,6 @@ def update_all_projects_data(sonar_api, metrics_processor):
     
     updated_projects = {}
     
-    # Update metrics for each project
     for project_key, project_name in project_keys.items():
         try:
             metrics = sonar_api.get_project_metrics(project_key)
@@ -68,7 +65,6 @@ def update_all_projects_data(sonar_api, metrics_processor):
         except Exception as e:
             logger.error(f"Unexpected error updating project {project_key}: {str(e)}")
     
-    # Add inactive projects with their last known metrics
     for project in existing_projects:
         if project['repo_key'] not in updated_projects and not project.get('is_marked_for_deletion'):
             latest_metrics = metrics_processor.get_latest_metrics(project['repo_key'])
@@ -130,7 +126,7 @@ def main():
             with st.form(key="navigation_form"):
                 view_mode = st.radio(
                     "Select View",
-                    ["Individual Projects", "Project Groups"],
+                    ["Individual Projects", "Project Groups", "Automated Reports"],
                     key="view_mode"
                 )
                 navigation_changed = st.form_submit_button("Update View")
@@ -165,14 +161,15 @@ def main():
         
         st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
 
-        if view_mode == "Project Groups":
+        if view_mode == "Automated Reports":
+            display_automated_reports()
+        elif view_mode == "Project Groups":
             manage_project_groups(sonar_api)
         else:
             all_projects_status = metrics_processor.get_project_status()
             project_names = {}
             project_status = {}
 
-            # Build project status dictionary
             for project in all_projects_status:
                 status_prefix = "✅"
                 if not project['is_active']:
@@ -185,7 +182,6 @@ def main():
                     'latest_metrics': project.get('latest_metrics', {})
                 }
 
-            # Add active projects from SonarCloud
             sonar_projects = sonar_api.get_projects()
             for project in sonar_projects:
                 if project['key'] not in project_names:
@@ -211,7 +207,6 @@ def main():
                     if apply_filter:
                         st.session_state.show_inactive_projects = show_inactive
 
-            # Filter projects based on inactive setting
             filtered_projects = {k: v for k, v in project_names.items()}
             if not show_inactive:
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
@@ -241,7 +236,6 @@ def main():
                 
                 is_inactive = not project_info.get('is_active', True)
                 
-                # Create tabs for Current Metrics and Trend Analysis
                 current_tab, trends_tab = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
                 
                 with current_tab:
