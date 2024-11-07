@@ -6,8 +6,6 @@ from database.schema import execute_query
 from services.report_generator import ReportGenerator
 from services.scheduler import SchedulerService
 import streamlit.components.v1 as components
-import html
-from main import format_project_name
 
 def display_email_configuration():
     """Display email configuration status"""
@@ -35,41 +33,23 @@ def display_email_configuration():
         st.warning("Please set up SMTP configuration in environment variables")
 
 def get_report_schedules():
-    """Get all configured report schedules with proper name formatting"""
+    """Get all configured report schedules"""
     query = """
-    WITH ProjectData AS (
-        SELECT 
-            r.repo_key,
-            r.name,
-            r.is_active,
-            r.is_marked_for_deletion,
-            rs.id,
-            rs.report_type,
-            rs.frequency,
-            rs.next_run_time AT TIME ZONE 'UTC' as next_run_time,
-            rs.recipients,
-            rs.report_format,
-            rs.last_run AT TIME ZONE 'UTC' as last_run,
-            rs.is_active as schedule_active
-        FROM report_schedules rs
-        LEFT JOIN repositories r ON rs.repository_id = r.id
-    )
-    SELECT * FROM ProjectData
+    SELECT 
+        id,
+        report_type,
+        frequency,
+        next_run_time AT TIME ZONE 'UTC' as next_run_time,
+        recipients,
+        report_format,
+        last_run AT TIME ZONE 'UTC' as last_run,
+        is_active
+    FROM report_schedules
     ORDER BY next_run_time;
     """
     try:
         result = execute_query(query)
-        schedules = []
-        for row in result:
-            schedule_dict = dict(row)
-            if schedule_dict.get('name'):
-                schedule_dict['formatted_name'] = format_project_name(
-                    html.escape(schedule_dict['name']),
-                    schedule_dict['is_active'],
-                    schedule_dict['is_marked_for_deletion']
-                )
-            schedules.append(schedule_dict)
-        return schedules
+        return [dict(row) for row in result] if result else []
     except Exception as e:
         st.error(f"Error fetching report schedules: {str(e)}")
         return []

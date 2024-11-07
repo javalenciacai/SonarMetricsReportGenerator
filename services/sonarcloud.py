@@ -11,30 +11,10 @@ class SonarCloudAPI:
             'Accept': 'application/json'
         }
         self.organization = None
-        self._init_organization()
         self.api_version = None
         self.debug_mode = True
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-
-    def _init_organization(self):
-        """Initialize organization during instantiation"""
-        try:
-            headers = {'Authorization': f'Bearer {self.token}'}
-            response = requests.get(
-                'https://sonarcloud.io/api/organizations/search?member=true',
-                headers=headers
-            )
-            response.raise_for_status()
-            orgs = response.json().get('organizations', [])
-            if orgs:
-                self.organization = orgs[0]['key']
-        except Exception as e:
-            self.logger.error(f"Error initializing organization: {str(e)}")
-
-    def get_organization(self):
-        """Get the current organization"""
-        return self.organization
 
     def _log_request(self, method, url, params=None, response=None):
         """Log API request details for debugging"""

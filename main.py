@@ -21,22 +21,12 @@ from database.connection import execute_query
 import logging
 from datetime import datetime, timezone, timedelta
 import requests
-import html
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-def format_project_name(name, is_active=True, is_marked_for_deletion=False):
-    """Format project name with consistent status indicators"""
-    name = html.escape(name)
-    if not is_active:
-        status_prefix = "🗑️" if is_marked_for_deletion else "⚠️"
-    else:
-        status_prefix = "✅"
-    return f"{status_prefix} {name}"
 
 def get_all_projects_data():
     """Get all projects data from database with latest metrics"""
@@ -95,7 +85,7 @@ def get_all_projects_data():
                 }
                 
                 projects_data[project_key] = {
-                    'name': html.escape(project_data['name']),
+                    'name': project_data['name'],
                     'metrics': metrics,
                     'is_active': project_data['is_active'],
                     'is_marked_for_deletion': project_data['is_marked_for_deletion']
@@ -107,49 +97,6 @@ def get_all_projects_data():
     except Exception as e:
         logger.error(f"Error retrieving project data: {str(e)}")
         return {}
-
-def sync_all_projects():
-    try:
-        # Initialize and validate SonarCloud API first
-        sonar_api = SonarCloudAPI(os.getenv('SONARCLOUD_TOKEN'))
-        is_valid, message = sonar_api.validate_token()
-        if not is_valid:
-            return False, message
-
-        # Set organization before continuing
-        organization = sonar_api.get_organization()
-        if not organization:
-            return False, "Organization not set or invalid"
-        sonar_api.organization = organization
-
-        # Continue with fetching and updating projects
-        query = '''
-        SELECT repo_key
-        FROM repositories
-        WHERE is_active = true AND is_marked_for_deletion = false;
-        '''
-        result = execute_query(query)
-        if not result:
-            return False, 'No active projects found'
-        
-        success_count = 0
-        failed_count = 0
-        
-        for row in result:
-            try:
-                success = update_entity_metrics('repository', row[0])
-                if success:
-                    success_count += 1
-                else:
-                    failed_count += 1
-            except Exception as e:
-                logger.error(f'Error updating project {row[0]}: {str(e)}')
-                failed_count += 1
-        
-        return True, f'Updated {success_count} projects successfully, {failed_count} failed'
-    except Exception as e:
-        logger.error(f'Error in sync_all_projects: {str(e)}')
-        return False, str(e)
 
 def main():
     try:
@@ -235,14 +182,12 @@ def main():
             project_status = {}
 
             for project in all_projects_status:
-                formatted_name = format_project_name(
-                    project['name'],
-                    project['is_active'],
-                    project.get('is_marked_for_deletion', False)
-                )
-                project_names[project['repo_key']] = formatted_name
+                status_prefix = "✅"
+                if not project['is_active']:
+                    status_prefix = "🗑️" if project.get('is_marked_for_deletion') else "⚠️"
+                project_names[project['repo_key']] = f"{status_prefix} {project['name']}"
                 project_status[project['repo_key']] = {
-                    'name': html.escape(project['name']),
+                    'name': project['name'],
                     'is_active': project['is_active'],
                     'is_marked_for_deletion': project.get('is_marked_for_deletion', False),
                     'latest_metrics': project.get('latest_metrics', {})
@@ -275,18 +220,7 @@ def main():
             )
 
             if selected_project == 'all':
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.markdown("## 📊 All Projects Overview")
-                with col2:
-                    if st.button("🔄 Sync All Projects", help="Trigger an immediate update for all active projects"):
-                        with st.spinner("Syncing all projects..."):
-                            success, message = sync_all_projects()
-                            if success:
-                                st.success(f"✅ {message}")
-                            else:
-                                st.error(f"❌ Sync failed: {message}")
-                
+                st.markdown("## 📊 All Projects Overview")
                 projects_data = get_all_projects_data()
                 
                 if projects_data:
