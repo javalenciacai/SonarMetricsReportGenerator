@@ -75,12 +75,14 @@ def get_all_projects_data():
             project_data = dict(row)
             project_key = project_data['repo_key']
             
-            # Determine project status indicator with proper spacing
-            status_indicator = '✅ '
-            if not project_data['is_active']:
-                status_indicator = '🗑️ ' if project_data['is_marked_for_deletion'] else '⚠️ '
-            
             # Format project name with status and proper spacing
+            if project_data['is_marked_for_deletion']:
+                status_indicator = '🗑️\u00A0'  # Using non-breaking space
+            elif not project_data['is_active']:
+                status_indicator = '⚠️\u00A0'
+            else:
+                status_indicator = '✅\u00A0'
+            
             formatted_name = f"{status_indicator}{project_data['name']}"
             
             # Always include project data with formatted name
