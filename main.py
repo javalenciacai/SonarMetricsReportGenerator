@@ -28,29 +28,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_all_projects_data():
-    """Get all projects data from database with latest metrics"""
+def update_all_projects_data(sonar_api, metrics_processor):
+    """Update metrics for all projects from database"""
+    logger.info("Starting update for all projects")
+    
+    # Get all projects from database
     query = """
-    WITH LatestMetrics AS (
-        SELECT 
-            repository_id,
-            bugs,
-            vulnerabilities,
-            code_smells,
-            coverage,
-            duplicated_lines_density,
-            ncloc,
-            sqale_index,
-            timestamp AT TIME ZONE 'UTC' as timestamp,
-            ROW_NUMBER() OVER (PARTITION BY repository_id ORDER BY timestamp DESC) as rn
-        FROM metrics
-    )
     SELECT 
         r.repo_key,
         r.name,
         r.is_active,
         r.is_marked_for_deletion,
-        r.update_interval,
         m.bugs,
         m.vulnerabilities,
         m.code_smells,
@@ -58,23 +46,27 @@ def get_all_projects_data():
         m.duplicated_lines_density,
         m.ncloc,
         m.sqale_index,
-        m.timestamp
+        m.timestamp AT TIME ZONE 'UTC' as last_update
     FROM repositories r
-    LEFT JOIN LatestMetrics m ON m.repository_id = r.id AND m.rn = 1
-    ORDER BY r.name;
+    LEFT JOIN metrics m ON m.repository_id = r.id
+    WHERE m.timestamp = (
+        SELECT MAX(timestamp)
+        FROM metrics m2
+        WHERE m2.repository_id = r.id
+    )
+    OR m.timestamp IS NULL;
     """
     
     try:
         result = execute_query(query)
-        projects_data = {}
+        updated_projects = {}
         
         for row in result:
             project_data = dict(row)
             project_key = project_data['repo_key']
             
-            # Only include projects with metrics data
-            if project_data['bugs'] is not None:
-                metrics = {
+            if project_data['last_update']:
+                metrics_dict = {
                     'bugs': float(project_data['bugs']),
                     'vulnerabilities': float(project_data['vulnerabilities']),
                     'code_smells': float(project_data['code_smells']),
@@ -84,18 +76,20 @@ def get_all_projects_data():
                     'sqale_index': float(project_data['sqale_index'])
                 }
                 
-                projects_data[project_key] = {
+                updated_projects[project_key] = {
                     'name': project_data['name'],
-                    'metrics': metrics,
+                    'metrics': metrics_dict,
                     'is_active': project_data['is_active'],
                     'is_marked_for_deletion': project_data['is_marked_for_deletion']
                 }
                 logger.info(f"Retrieved metrics for project: {project_key}")
+            else:
+                logger.warning(f"No metrics found for project: {project_key}")
         
-        return projects_data
+        return updated_projects
         
     except Exception as e:
-        logger.error(f"Error retrieving project data: {str(e)}")
+        logger.error(f"Error updating project data: {str(e)}")
         return {}
 
 def main():
@@ -221,7 +215,7 @@ def main():
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-                projects_data = get_all_projects_data()
+                projects_data = update_all_projects_data(sonar_api, metrics_processor)
                 
                 if projects_data:
                     display_multi_project_metrics(projects_data)
