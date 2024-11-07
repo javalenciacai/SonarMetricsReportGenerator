@@ -116,6 +116,40 @@ class SchedulerService:
                 'last_run': timestamp
             }
 
+    def schedule_metrics_update(self, entity_type, entity_id, interval=3600):
+        """Schedule metrics update for a specific entity (repository or group)"""
+        try:
+            job_id = f"update_{entity_type}_{entity_id}"
+            
+            if job_id in self.job_registry:
+                self.scheduler.remove_job(job_id)
+                self.logger.info(f"Removed existing job for {entity_type} {entity_id}")
+            
+            self.scheduler.add_job(
+                self._update_repository_metrics if entity_type == 'repository' else self._update_group_metrics,
+                IntervalTrigger(seconds=interval, timezone='UTC'),
+                id=job_id,
+                name=f"Update {entity_type} {entity_id}",
+                args=[entity_id],
+                replace_existing=True
+            )
+            
+            self.job_registry[job_id] = {
+                'type': 'update',
+                'entity_type': entity_type,
+                'entity_id': entity_id,
+                'interval': interval,
+                'created_at': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            self.logger.info(f"Successfully scheduled {entity_type} update job for {entity_id} "
+                           f"with {interval}s interval")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to schedule {entity_type} update job for {entity_id}: {str(e)}")
+            return False
+
     def initialize_update_intervals(self):
         """Initialize update intervals for all repositories from database"""
         query = """
@@ -157,6 +191,28 @@ class SchedulerService:
             return success, {"repository": repo_key}
         except Exception as e:
             self.logger.error(f"Error updating repository metrics: {str(e)}")
+            return False, {"error": str(e)}
+
+    def _update_group_metrics(self, group_id):
+        """Update metrics for all repositories in a group"""
+        try:
+            from database.schema import get_projects_in_group
+            from services.metrics_updater import update_entity_metrics
+            
+            projects = get_projects_in_group(group_id)
+            success_count = 0
+            
+            for project in projects:
+                if update_entity_metrics('repository', project['repo_key']):
+                    success_count += 1
+            
+            return True, {
+                "group_id": group_id,
+                "total_projects": len(projects),
+                "successful_updates": success_count
+            }
+        except Exception as e:
+            self.logger.error(f"Error updating group metrics: {str(e)}")
             return False, {"error": str(e)}
 
     def start(self):
