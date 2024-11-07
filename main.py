@@ -106,6 +106,12 @@ def sync_all_projects():
         if not is_valid:
             return False, message
 
+        # Set organization before continuing
+        organization = sonar_api.get_organization()
+        if not organization:
+            return False, "Organization not set or invalid"
+        sonar_api.organization = organization
+
         # Continue with fetching and updating projects
         query = '''
         SELECT repo_key
