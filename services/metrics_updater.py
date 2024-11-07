@@ -61,6 +61,17 @@ def retry_api_call(func, *args, max_retries=3, retry_delay=5):
         raise last_error
     return last_response
 
+def get_project_name_from_sonarcloud(sonar_api, project_key):
+    """Get project name from SonarCloud API"""
+    try:
+        projects = retry_api_call(sonar_api.get_projects)
+        for project in projects:
+            if project['key'] == project_key:
+                return project['name']
+    except Exception as e:
+        logger.error(f"Error getting project name from SonarCloud: {str(e)}")
+    return None
+
 def update_entity_metrics(entity_type, entity_id):
     """Update metrics for an entity (project or group) with enhanced error handling"""
     utc_now = datetime.now(timezone.utc)
@@ -94,9 +105,15 @@ def update_entity_metrics(entity_type, entity_id):
         if entity_type == 'repository':
             logger.info(f"[{execution_id}] Fetching metrics for repository: {entity_id}")
             try:
-                # Get existing project data first
-                project_data = metrics_processor.get_latest_metrics(entity_id)
-                project_name = project_data.get('name', '') if project_data else ''
+                # Get project name from SonarCloud
+                project_name = get_project_name_from_sonarcloud(sonar_api, entity_id)
+                if not project_name:
+                    # Fallback to existing name if SonarCloud fetch fails
+                    project_data = metrics_processor.get_latest_metrics(entity_id)
+                    project_name = project_data.get('name', '') if project_data else ''
+                    logger.warning(f"[{execution_id}] Using existing name '{project_name}' for {entity_id}")
+                else:
+                    logger.info(f"[{execution_id}] Updated name from SonarCloud: '{project_name}'")
                 
                 try:
                     metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
@@ -104,7 +121,7 @@ def update_entity_metrics(entity_type, entity_id):
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                         logger.debug(f"[{execution_id}] Retrieved metrics: {list(metrics_dict.keys())}")
                         
-                        # Reset consecutive failures on successful update and preserve project name
+                        # Reset consecutive failures on successful update and use updated project name
                         success = metrics_processor.store_metrics(entity_id, project_name, metrics_dict, reset_failures=True)
                         if success:
                             metrics_summary['updated_count'] += 1
@@ -185,10 +202,16 @@ def update_entity_metrics(entity_type, entity_id):
                 
                 for project in projects:
                     try:
+                        # Get updated project name from SonarCloud
+                        project_name = get_project_name_from_sonarcloud(sonar_api, project['repo_key'])
+                        if not project_name:
+                            project_name = project['name']  # Fallback to existing name
+                            logger.warning(f"[{execution_id}] Using existing name for {project['repo_key']}")
+                        
                         metrics = retry_api_call(sonar_api.get_project_metrics, project['repo_key'])
                         if metrics:
                             metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                            if metrics_processor.store_metrics(project['repo_key'], project['name'], metrics_dict, reset_failures=True):
+                            if metrics_processor.store_metrics(project['repo_key'], project_name, metrics_dict, reset_failures=True):
                                 metrics_summary['updated_count'] += 1
                                 active_project_keys.append(project['repo_key'])
                             else:
