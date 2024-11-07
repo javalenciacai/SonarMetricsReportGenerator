@@ -17,8 +17,9 @@ from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
 from components.automated_reports import display_automated_reports
 from database.schema import initialize_database, get_update_preferences
+from database.connection import execute_query
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 
 logging.basicConfig(
@@ -28,64 +29,68 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def update_all_projects_data(sonar_api, metrics_processor):
-    """Update metrics for all projects from SonarCloud"""
+    """Update metrics for all projects from database"""
     logger.info("Starting update for all projects")
     
-    sonar_projects = sonar_api.get_projects()
-    project_keys = {p['key']: p['name'] for p in sonar_projects}
+    # Get all projects from database
+    query = """
+    SELECT 
+        r.repo_key,
+        r.name,
+        r.is_active,
+        r.is_marked_for_deletion,
+        m.bugs,
+        m.vulnerabilities,
+        m.code_smells,
+        m.coverage,
+        m.duplicated_lines_density,
+        m.ncloc,
+        m.sqale_index,
+        m.timestamp AT TIME ZONE 'UTC' as last_update
+    FROM repositories r
+    LEFT JOIN metrics m ON m.repository_id = r.id
+    WHERE m.timestamp = (
+        SELECT MAX(timestamp)
+        FROM metrics m2
+        WHERE m2.repository_id = r.id
+    )
+    OR m.timestamp IS NULL;
+    """
     
-    existing_projects = metrics_processor.get_project_status()
-    for project in existing_projects:
-        if project['repo_key'] not in project_keys and project['is_active']:
-            metrics_processor.mark_project_inactive(project['repo_key'])
-            logger.info(f"Marked inactive project that's not in SonarCloud: {project['repo_key']}")
-    
-    updated_projects = {}
-    
-    for project_key, project_name in project_keys.items():
-        try:
-            metrics = sonar_api.get_project_metrics(project_key)
-            if metrics:
-                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                if metrics_processor.store_metrics(project_key, project_name, metrics_dict, reset_failures=True):
-                    updated_projects[project_key] = {
-                        'name': project_name,
-                        'metrics': metrics_dict,
-                        'is_active': True
-                    }
-                    logger.info(f"Updated metrics for project: {project_key}")
+    try:
+        result = execute_query(query)
+        updated_projects = {}
+        
+        for row in result:
+            project_data = dict(row)
+            project_key = project_data['repo_key']
+            
+            if project_data['last_update']:
+                metrics_dict = {
+                    'bugs': float(project_data['bugs']),
+                    'vulnerabilities': float(project_data['vulnerabilities']),
+                    'code_smells': float(project_data['code_smells']),
+                    'coverage': float(project_data['coverage']),
+                    'duplicated_lines_density': float(project_data['duplicated_lines_density']),
+                    'ncloc': float(project_data['ncloc']),
+                    'sqale_index': float(project_data['sqale_index'])
+                }
+                
+                updated_projects[project_key] = {
+                    'name': project_data['name'],
+                    'metrics': metrics_dict,
+                    'is_active': project_data['is_active'],
+                    'is_marked_for_deletion': project_data['is_marked_for_deletion']
+                }
+                logger.info(f"Retrieved metrics for project: {project_key}")
             else:
                 logger.warning(f"No metrics found for project: {project_key}")
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                metrics_processor.mark_project_inactive(project_key)
-                logger.warning(f"Project {project_key} marked as inactive - not found in SonarCloud")
-            else:
-                logger.error(f"Error updating project {project_key}: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error updating project {project_key}: {str(e)}")
-    
-    for project in existing_projects:
-        if project['repo_key'] not in updated_projects and not project.get('is_marked_for_deletion'):
-            latest_metrics = metrics_processor.get_latest_metrics(project['repo_key'])
-            if latest_metrics:
-                metrics_dict = {
-                    'bugs': float(latest_metrics.get('bugs', 0)),
-                    'vulnerabilities': float(latest_metrics.get('vulnerabilities', 0)),
-                    'code_smells': float(latest_metrics.get('code_smells', 0)),
-                    'coverage': float(latest_metrics.get('coverage', 0)),
-                    'duplicated_lines_density': float(latest_metrics.get('duplicated_lines_density', 0)),
-                    'ncloc': float(latest_metrics.get('ncloc', 0)),
-                    'sqale_index': float(latest_metrics.get('sqale_index', 0))
-                }
-                updated_projects[project['repo_key']] = {
-                    'name': project['name'],
-                    'metrics': metrics_dict,
-                    'is_active': False,
-                    'is_marked_for_deletion': project.get('is_marked_for_deletion', False)
-                }
-    
-    return updated_projects
+        
+        return updated_projects
+        
+    except Exception as e:
+        logger.error(f"Error updating project data: {str(e)}")
+        return {}
 
 def main():
     try:
@@ -182,17 +187,6 @@ def main():
                     'latest_metrics': project.get('latest_metrics', {})
                 }
 
-            sonar_projects = sonar_api.get_projects()
-            for project in sonar_projects:
-                if project['key'] not in project_names:
-                    project_names[project['key']] = f"✅ {project['name']}"
-                    project_status[project['key']] = {
-                        'name': project['name'],
-                        'is_active': True,
-                        'is_marked_for_deletion': False,
-                        'latest_metrics': {}
-                    }
-
             project_names['all'] = "📊 All Projects"
 
             with st.sidebar:
@@ -247,9 +241,10 @@ def main():
                             display_current_metrics(metrics_dict)
                     else:
                         try:
-                            metrics = sonar_api.get_project_metrics(selected_project)
+                            metrics = metrics_processor.get_latest_metrics(selected_project)
                             if metrics:
-                                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                                metrics_dict = {k: float(v) for k, v in metrics.items() 
+                                            if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
                                 display_current_metrics(metrics_dict)
                                 create_download_report({selected_project: {
                                     'name': project_info['name'],
