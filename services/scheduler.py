@@ -117,7 +117,7 @@ class SchedulerService:
                 'last_run': timestamp
             }
 
-    def schedule_metrics_update(self, entity_type, entity_id, interval=3600, scheduler=None):
+    def schedule_metrics_update(self, entity_type, entity_id, interval=3600):
         """Schedule metrics update for a specific entity (repository or group)"""
         try:
             job_id = f"update_{entity_type}_{entity_id}"
@@ -126,14 +126,11 @@ class SchedulerService:
                 self.scheduler.remove_job(job_id)
                 self.logger.info(f"Removed existing job for {entity_type} {entity_id}")
             
-            scheduler_to_use = scheduler if scheduler else self.scheduler
-            
-            scheduler_to_use.add_job(
-                func=lambda x: update_entity_metrics('repository', x),
+            self.scheduler.add_job(
+                func=lambda: update_entity_metrics(entity_type, entity_id),
                 trigger=IntervalTrigger(seconds=interval, timezone='UTC'),
                 id=job_id,
                 name=f"Update {entity_type} {entity_id}",
-                args=[entity_id],
                 replace_existing=True
             )
             
@@ -165,54 +162,12 @@ class SchedulerService:
                 for repo_key, interval in result:
                     job_id = f"update_{repo_key}"
                     if interval > 0:
-                        self.scheduler.add_job(
-                            func=lambda x: update_entity_metrics('repository', x),
-                            trigger=IntervalTrigger(seconds=interval, timezone='UTC'),
-                            id=job_id,
-                            name=f"Update {repo_key}",
-                            args=[repo_key],
-                            replace_existing=True
-                        )
-                        self.job_registry[job_id] = {
-                            'type': 'update',
-                            'entity_type': 'repository',
-                            'entity_id': repo_key,
-                            'interval': interval
-                        }
+                        self.schedule_metrics_update('repository', repo_key, interval)
                         self.logger.info(f"Initialized update job for {repo_key} with {interval}s interval")
             return True
         except Exception as e:
             self.logger.error(f"Error initializing update intervals: {str(e)}")
             return False
-
-    def _update_repository_metrics(self, repo_key):
-        """Update metrics for a repository"""
-        try:
-            success = update_entity_metrics('repository', repo_key)
-            return success, {"repository": repo_key}
-        except Exception as e:
-            self.logger.error(f"Error updating repository metrics: {str(e)}")
-            return False, {"error": str(e)}
-
-    def _update_group_metrics(self, group_id):
-        """Update metrics for all repositories in a group"""
-        try:
-            from database.schema import get_projects_in_group
-            projects = get_projects_in_group(group_id)
-            success_count = 0
-            
-            for project in projects:
-                if update_entity_metrics('repository', project['repo_key']):
-                    success_count += 1
-            
-            return True, {
-                "group_id": group_id,
-                "total_projects": len(projects),
-                "successful_updates": success_count
-            }
-        except Exception as e:
-            self.logger.error(f"Error updating group metrics: {str(e)}")
-            return False, {"error": str(e)}
 
     def start(self):
         """Start the scheduler with automatic interval initialization"""
@@ -325,11 +280,10 @@ class SchedulerService:
             if alerts:
                 recipients = self._get_report_recipients('alerts')
                 if recipients:
-                    alert_html = self._format_metric_alerts(alerts)
                     success = self.report_generator.send_email(
                         recipients,
                         "SonarCloud Metric Change Alert",
-                        alert_html,
+                        alerts,
                         'HTML'
                     )
                     return success, {"alert_count": len(alerts)}
@@ -359,23 +313,3 @@ class SchedulerService:
         except Exception as e:
             self.logger.error(f"Error getting report recipients: {str(e)}")
             return []
-
-    def _format_metric_alerts(self, alerts):
-        """Format metric alerts into HTML"""
-        template = """
-        <h2>SonarCloud Metric Change Alert</h2>
-        <p>The following significant changes have been detected:</p>
-        <ul>
-        {}
-        </ul>
-        """
-        
-        alert_items = []
-        for alert in alerts:
-            direction = "increased" if alert['change'] > 0 else "decreased"
-            alert_items.append(
-                f"<li><strong>{alert['metric'].replace('_', ' ').title()}</strong> has {direction} "
-                f"by {abs(alert['change'])} (Threshold: {alert['threshold']})</li>"
-            )
-        
-        return template.format("\n".join(alert_items))
