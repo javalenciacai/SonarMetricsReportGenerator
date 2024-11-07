@@ -200,7 +200,7 @@ def store_metrics(repo_key, name, metrics, reset_failures=False):
             repo_key, name, last_seen, is_active, consecutive_failures
         )
         VALUES (%s, %s, CURRENT_TIMESTAMP AT TIME ZONE 'UTC', true, %s)
-        ON CONFLICT (repo_key, name) DO UPDATE
+        ON CONFLICT (repo_key) DO UPDATE
         SET name = EXCLUDED.name,
             last_seen = CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
             is_active = true,
