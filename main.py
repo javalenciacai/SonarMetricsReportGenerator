@@ -98,6 +98,37 @@ def get_all_projects_data():
         logger.error(f"Error retrieving project data: {str(e)}")
         return {}
 
+def sync_all_projects():
+    """Trigger an immediate update for all active projects"""
+    query = """
+    SELECT repo_key
+    FROM repositories
+    WHERE is_active = true AND is_marked_for_deletion = false;
+    """
+    try:
+        result = execute_query(query)
+        if not result:
+            return False, "No active projects found"
+        
+        success_count = 0
+        failed_count = 0
+        
+        for row in result:
+            try:
+                success = update_entity_metrics('repository', row[0])
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Error updating project {row[0]}: {str(e)}")
+                failed_count += 1
+        
+        return True, f"Updated {success_count} projects successfully, {failed_count} failed"
+    except Exception as e:
+        logger.error(f"Error in sync_all_projects: {str(e)}")
+        return False, str(e)
+
 def main():
     try:
         st.set_page_config(
@@ -220,7 +251,18 @@ def main():
             )
 
             if selected_project == 'all':
-                st.markdown("## 📊 All Projects Overview")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown("## 📊 All Projects Overview")
+                with col2:
+                    if st.button("🔄 Sync All Projects", help="Trigger an immediate update for all active projects"):
+                        with st.spinner("Syncing all projects..."):
+                            success, message = sync_all_projects()
+                            if success:
+                                st.success(f"✅ {message}")
+                            else:
+                                st.error(f"❌ Sync failed: {message}")
+                
                 projects_data = get_all_projects_data()
                 
                 if projects_data:
