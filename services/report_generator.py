@@ -1,312 +1,682 @@
-import pandas as pd
-from datetime import datetime, timedelta
-from services.sonarcloud import SonarCloudAPI
-from services.metrics_processor import MetricsProcessor
-from services.metric_analyzer import MetricAnalyzer
-import logging
 import os
+import pandas as pd
+from datetime import datetime, timezone, timedelta
+from database.schema import execute_query
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ReportGenerator:
-    def __init__(self, sonar_api):
-        self.sonar_api = sonar_api
-        self.metrics_processor = MetricsProcessor()
-        self.analyzer = MetricAnalyzer()
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-        self.smtp_config = {
-            'server': os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
-            'port': int(os.getenv('SMTP_PORT', '587')),
-            'username': os.getenv('SMTP_USERNAME'),
-            'password': os.getenv('SMTP_PASSWORD')
-        }
+    def __init__(self):
+        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        self.smtp_username = os.getenv('SMTP_USERNAME')
+        self.smtp_password = os.getenv('SMTP_PASSWORD')
 
-    def verify_smtp_connection(self):
-        """Test SMTP connection and return detailed status"""
-        try:
-            self.logger.info("Verifying SMTP connection...")
-            if not all([self.smtp_config['username'], self.smtp_config['password']]):
-                return False, "SMTP credentials not configured"
-
-            with smtplib.SMTP(self.smtp_config['server'], self.smtp_config['port']) as server:
-                server.starttls()
-                server.login(self.smtp_config['username'], self.smtp_config['password'])
-                self.logger.info("SMTP connection verified successfully")
-                return True, "SMTP connection successful"
-
-        except smtplib.SMTPAuthenticationError as e:
-            error_msg = "SMTP authentication failed. Please check credentials."
-            self.logger.error(f"{error_msg} Details: {str(e)}")
-            return False, error_msg
-        except smtplib.SMTPConnectError as e:
-            error_msg = f"Failed to connect to SMTP server {self.smtp_config['server']}:{self.smtp_config['port']}"
-            self.logger.error(f"{error_msg} Details: {str(e)}")
-            return False, error_msg
-        except Exception as e:
-            error_msg = f"SMTP verification failed: {str(e)}"
-            self.logger.error(error_msg)
-            return False, error_msg
-
-    def get_trend_arrow(self, change):
-        """Return trend arrow based on change percentage"""
-        if abs(change) < 1:
-            return "→"
-        return "↑" if change > 0 else "↓"
-
-    def get_status_emoji(self, status):
-        """Return status emoji based on status"""
-        return "🟢" if status == 'good' else "🟡" if status == 'warning' else "🔴"
-
-    def generate_executive_summary(self, current_metrics, historical_data):
-        """Generate executive summary with trends and recommendations"""
-        quality_score = self.analyzer.calculate_quality_score(current_metrics)
-        metric_status = self.analyzer.get_metric_status(current_metrics)
+    def generate_daily_report(self, project_key=None):
+        """Generate daily report with 24-hour comparison"""
+        current_metrics = self._get_current_metrics(project_key)
+        previous_day = self._get_historical_metrics(project_key, hours=24)
         
-        # Calculate week-over-week changes
-        weekly_changes = {}
-        monthly_changes = {}
-        for metric in current_metrics.keys():
-            weekly_comp = self.analyzer.calculate_period_comparison(historical_data, metric, days=7)
-            monthly_comp = self.analyzer.calculate_period_comparison(historical_data, metric, days=30)
-            if weekly_comp:
-                weekly_changes[metric] = weekly_comp
-            if monthly_comp:
-                monthly_changes[metric] = monthly_comp
-
-        # Identify critical changes and areas needing attention
-        critical_changes = []
-        attention_areas = []
-        improvements = []
-        
-        for metric, status in metric_status.items():
-            if status == 'critical':
-                attention_areas.append(metric)
-            elif status == 'good' and metric in weekly_changes:
-                if weekly_changes[metric]['improved']:
-                    improvements.append(metric)
-            
-            if metric in weekly_changes:
-                change = weekly_changes[metric]['change_percentage']
-                if abs(change) > 10:  # Significant changes (>10%)
-                    critical_changes.append(f"{metric}: {change:+.1f}% {self.get_trend_arrow(change)}")
-
-        return {
-            'quality_score': quality_score,
-            'critical_changes': critical_changes,
-            'attention_areas': attention_areas,
-            'improvements': improvements,
-            'weekly_changes': weekly_changes,
-            'monthly_changes': monthly_changes,
-            'metric_status': metric_status
+        report = {
+            'timestamp': datetime.now(timezone.utc),
+            'type': 'daily',
+            'current_metrics': current_metrics,
+            'changes': self._calculate_changes(current_metrics, previous_day),
+            'critical_issues': self._get_critical_issues(current_metrics)
         }
+        
+        return self._format_daily_report(report)
 
-    def generate_project_report(self, project_key, report_type='daily'):
-        """Generate a report for a specific project"""
-        self.logger.info(f"Starting {report_type} report generation for project: {project_key}")
+    def generate_weekly_report(self, project_key=None):
+        """Generate weekly report with week-over-week comparison"""
+        current_metrics = self._get_current_metrics(project_key)
+        previous_week = self._get_historical_metrics(project_key, days=7)
+        
+        report = {
+            'timestamp': datetime.now(timezone.utc),
+            'type': 'weekly',
+            'current_metrics': current_metrics,
+            'changes': self._calculate_changes(current_metrics, previous_week),
+            'trend_analysis': self._analyze_trends(project_key),
+            'executive_summary': self._generate_executive_summary(current_metrics, previous_week)
+        }
+        
+        return self._format_weekly_report(report)
+
+    def check_metric_changes(self, project_key=None, thresholds=None):
+        """Check for significant metric changes"""
+        if thresholds is None:
+            thresholds = self._get_default_thresholds()
+
+        current = self._get_current_metrics(project_key)
+        previous = self._get_historical_metrics(project_key, hours=4)
+        
+        changes = self._calculate_changes(current, previous)
+        alerts = self._check_thresholds(changes, thresholds)
+        
+        if alerts:
+            return self._format_metric_alerts(alerts)
+        return None
+
+    def send_email(self, recipients, subject, content, report_format='HTML'):
+        """Send email using configured SMTP settings"""
         try:
-            # Fetch current metrics
-            metrics = self.sonar_api.get_project_metrics(project_key)
-            if not metrics:
-                self.logger.error(f"No metrics found for project {project_key}")
-                return None, "No metrics found for project"
-
-            metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-            self.logger.info("Successfully fetched current metrics")
-            
-            # Get historical data
-            historical_data = self.metrics_processor.get_historical_data(project_key)
-            if not historical_data:
-                self.logger.warning("No historical data available")
-            
-            # Generate executive summary
-            summary = self.generate_executive_summary(metrics_dict, historical_data)
-            self.logger.info("Executive summary generated successfully")
-            
-            # Prepare report data
-            report_data = {
-                'timestamp': datetime.now(),
-                'project_key': project_key,
-                'quality_score': summary['quality_score'],
-                'metrics': metrics_dict,
-                'status': summary['metric_status'],
-                'executive_summary': summary
-            }
-
-            self.logger.info(f"Report generation completed for project: {project_key}")
-            return report_data, "Report generated successfully"
-            
-        except Exception as e:
-            error_msg = f"Error generating report: {str(e)}"
-            self.logger.error(error_msg)
-            return None, error_msg
-
-    def format_report_email(self, report_data):
-        """Format report data into an HTML email body"""
-        self.logger.info("Generating HTML email content")
-        try:
-            summary = report_data['executive_summary']
-            
-            html = f"""
-            <html>
-                <head>
-                    <style>
-                        .summary-card {{ background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }}
-                        .metric-category {{ margin: 20px 0; }}
-                        .trend-positive {{ color: green; }}
-                        .trend-negative {{ color: red; }}
-                        .trend-neutral {{ color: gray; }}
-                        table {{ border-collapse: collapse; width: 100%; }}
-                        th, td {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
-                    </style>
-                </head>
-                <body>
-                    <h1>SonarCloud Metrics Executive Report</h1>
-                    <p>Generated on: {report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}</p>
-                    <p>Project: {report_data['project_key']}</p>
-
-                    <div class="summary-card">
-                        <h2>Executive Summary</h2>
-                        <p><strong>Overall Quality Score: {summary['quality_score']:.1f}/100</strong></p>
-                        
-                        <h3>Critical Changes (Past Week)</h3>
-                        {'<br>'.join(summary['critical_changes']) if summary['critical_changes'] else 'No critical changes'}
-                        
-                        <h3>Management Insights</h3>
-                        <p><strong>🔔 Areas Requiring Immediate Attention:</strong><br>
-                        {', '.join(summary['attention_areas']) if summary['attention_areas'] else 'No immediate attention required'}</p>
-                        
-                        <p><strong>✨ Recent Improvements:</strong><br>
-                        {', '.join(summary['improvements']) if summary['improvements'] else 'No recent improvements detected'}</p>
-                    </div>
-
-                    <div class="metric-category">
-                        <h2>Metrics Overview</h2>
-                        <table>
-                            <tr>
-                                <th>Category</th>
-                                <th>Current</th>
-                                <th>WoW Change</th>
-                                <th>MoM Change</th>
-                                <th>Status</th>
-                            </tr>
-            """
-
-            # Organize metrics by category
-            categories = {
-                'Code Quality': ['code_smells', 'duplicated_lines_density'],
-                'Security': ['vulnerabilities'],
-                'Reliability': ['bugs', 'coverage']
-            }
-
-            for category, metrics in categories.items():
-                for metric in metrics:
-                    if metric in report_data['metrics']:
-                        current_value = report_data['metrics'][metric]
-                        wow_change = summary['weekly_changes'].get(metric, {}).get('change_percentage', 0)
-                        mom_change = summary['monthly_changes'].get(metric, {}).get('change_percentage', 0)
-                        status = summary['metric_status'].get(metric, 'neutral')
-                        
-                        trend_wow = self.get_trend_arrow(wow_change)
-                        trend_mom = self.get_trend_arrow(mom_change)
-                        status_emoji = self.get_status_emoji(status)
-                        
-                        html += f"""
-                            <tr>
-                                <td>{category} - {metric.replace('_', ' ').title()}</td>
-                                <td>{current_value:.2f}</td>
-                                <td>{wow_change:+.1f}% {trend_wow}</td>
-                                <td>{mom_change:+.1f}% {trend_mom}</td>
-                                <td>{status_emoji}</td>
-                            </tr>
-                        """
-
-            html += """
-                        </table>
-                    </div>
-                </body>
-            </html>
-            """
-            self.logger.info("HTML email content generated successfully")
-            return html
-
-        except Exception as e:
-            error_msg = f"Error generating HTML content: {str(e)}"
-            self.logger.error(error_msg)
-            raise Exception(error_msg)
-
-    def send_report_email(self, report_data, recipients):
-        """Send report via email"""
-        self.logger.info(f"Preparing to send report email to: {', '.join(recipients)}")
-        try:
-            # Verify SMTP connection first
-            smtp_status, smtp_message = self.verify_smtp_connection()
-            if not smtp_status:
-                return False, smtp_message
-
-            # Generate email content
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = f"SonarCloud Executive Metrics Report - {report_data['project_key']}"
-            msg['From'] = self.smtp_config['username']
-            msg['To'] = ', '.join(recipients)
-
-            # Add HTML content
-            html_content = self.format_report_email(report_data)
-            msg.attach(MIMEText(html_content, 'html'))
-
-            # Generate and attach CSV report
-            df = pd.DataFrame([report_data['metrics']])
-            csv_data = df.to_csv(index=False)
-            csv_attachment = MIMEApplication(csv_data, _subtype='csv')
-            csv_attachment.add_header('Content-Disposition', 'attachment', filename='metrics_report.csv')
-            msg.attach(csv_attachment)
-
-            # Send email
-            with smtplib.SMTP(self.smtp_config['server'], self.smtp_config['port']) as server:
-                server.starttls()
-                server.login(self.smtp_config['username'], self.smtp_config['password'])
-                server.send_message(msg)
-
-            success_msg = f"Report email sent successfully to {', '.join(recipients)}"
-            self.logger.info(success_msg)
-            return True, success_msg
-
-        except Exception as e:
-            error_msg = f"Error sending email: {str(e)}"
-            self.logger.error(error_msg)
-            return False, error_msg
-
-    def send_email_notification(self, subject, html_content, recipients):
-        """Send notification email"""
-        self.logger.info(f"Preparing to send notification email to: {', '.join(recipients)}")
-        try:
-            # Verify SMTP connection first
-            smtp_status, smtp_message = self.verify_smtp_connection()
-            if not smtp_status:
-                return False, smtp_message
-
-            # Create message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = self.smtp_config['username']
+            msg['From'] = self.smtp_username
             msg['To'] = ', '.join(recipients)
-
-            # Add HTML content
-            msg.attach(MIMEText(html_content, 'html'))
-
-            # Send email
-            with smtplib.SMTP(self.smtp_config['server'], self.smtp_config['port']) as server:
+            
+            content_type = 'html' if report_format.lower() == 'html' else 'plain'
+            msg.attach(MIMEText(content, content_type))
+            
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
-                server.login(self.smtp_config['username'], self.smtp_config['password'])
+                server.login(self.smtp_username, self.smtp_password)
                 server.send_message(msg)
-
-            success_msg = f"Notification email sent successfully to {', '.join(recipients)}"
-            self.logger.info(success_msg)
-            return True, success_msg
-
+            
+            return True
         except Exception as e:
-            error_msg = f"Error sending notification email: {str(e)}"
-            self.logger.error(error_msg)
-            return False, error_msg
+            logger.error(f"Error sending email: {str(e)}")
+            return False
+
+    def test_smtp_connection(self):
+        """Test SMTP connection and credentials"""
+        try:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_username, self.smtp_password)
+            return True, "SMTP connection successful"
+        except Exception as e:
+            return False, f"SMTP connection failed: {str(e)}"
+
+    def _get_current_metrics(self, project_key=None):
+        """Get current metrics for a project or all projects"""
+        query = """
+        SELECT 
+            r.repo_key,
+            r.name,
+            m.*
+        FROM metrics m
+        JOIN repositories r ON r.id = m.repository_id
+        WHERE r.is_active = true
+        {}
+        AND m.timestamp = (
+            SELECT MAX(timestamp)
+            FROM metrics m2
+            WHERE m2.repository_id = m.repository_id
+        );
+        """
+        
+        try:
+            if project_key:
+                result = execute_query(
+                    query.format('AND r.repo_key = %s'),
+                    (project_key,)
+                )
+            else:
+                result = execute_query(query.format(''))
+            
+            return [dict(row) for row in result] if result else []
+        except Exception as e:
+            logger.error(f"Error getting current metrics: {str(e)}")
+            return []
+
+    def _get_historical_metrics(self, project_key=None, hours=None, days=None):
+        """Get historical metrics for comparison"""
+        if hours:
+            interval = f"{hours} hours"
+        elif days:
+            interval = f"{days} days"
+        else:
+            return []
+
+        query = """
+        SELECT 
+            r.repo_key,
+            r.name,
+            m.*
+        FROM metrics m
+        JOIN repositories r ON r.id = m.repository_id
+        WHERE r.is_active = true
+        {}
+        AND m.timestamp <= CURRENT_TIMESTAMP - INTERVAL '{}'
+        AND m.timestamp > CURRENT_TIMESTAMP - INTERVAL '{}' - INTERVAL '1 hour'
+        ORDER BY m.timestamp DESC;
+        """
+        
+        try:
+            if project_key:
+                result = execute_query(
+                    query.format('AND r.repo_key = %s', interval, interval),
+                    (project_key,)
+                )
+            else:
+                result = execute_query(query.format('', interval, interval))
+            
+            return [dict(row) for row in result] if result else []
+        except Exception as e:
+            logger.error(f"Error getting historical metrics: {str(e)}")
+            return []
+
+    def _calculate_changes(self, current, previous):
+        """Calculate changes between current and previous metrics"""
+        changes = {}
+        metrics_to_compare = [
+            'bugs', 'vulnerabilities', 'code_smells', 
+            'coverage', 'duplicated_lines_density', 'ncloc'
+        ]
+        
+        for metric in metrics_to_compare:
+            try:
+                current_value = float(current[0][metric]) if current else 0
+                previous_value = float(previous[0][metric]) if previous else 0
+                
+                if previous_value != 0:
+                    change_percent = ((current_value - previous_value) / previous_value) * 100
+                else:
+                    change_percent = 100 if current_value > 0 else 0
+                
+                changes[metric] = {
+                    'previous': previous_value,
+                    'current': current_value,
+                    'change': current_value - previous_value,
+                    'change_percent': change_percent
+                }
+            except (KeyError, IndexError, TypeError):
+                continue
+        
+        return changes
+
+    def _get_critical_issues(self, metrics):
+        """Extract critical issues from metrics"""
+        critical = {
+            'high_severity_bugs': 0,
+            'critical_vulnerabilities': 0,
+            'major_code_smells': 0
+        }
+        
+        if metrics:
+            critical['high_severity_bugs'] = int(metrics[0].get('bugs', 0))
+            critical['critical_vulnerabilities'] = int(metrics[0].get('vulnerabilities', 0))
+            critical['major_code_smells'] = int(metrics[0].get('code_smells', 0))
+        
+        return critical
+
+    def _analyze_trends(self, project_key=None):
+        """Analyze metric trends over time"""
+        query = """
+        SELECT 
+            r.repo_key,
+            r.name,
+            m.*,
+            m.timestamp::date as date
+        FROM metrics m
+        JOIN repositories r ON r.id = m.repository_id
+        WHERE r.is_active = true
+        {}
+        AND m.timestamp >= CURRENT_DATE - INTERVAL '30 days'
+        ORDER BY m.timestamp;
+        """
+        
+        try:
+            if project_key:
+                result = execute_query(
+                    query.format('AND r.repo_key = %s'),
+                    (project_key,)
+                )
+            else:
+                result = execute_query(query.format(''))
+            
+            if not result:
+                return {}
+            
+            df = pd.DataFrame([dict(row) for row in result])
+            trends = {}
+            
+            for metric in ['bugs', 'vulnerabilities', 'code_smells', 'coverage']:
+                if metric in df.columns:
+                    trend = df[metric].diff().mean()
+                    trends[metric] = {
+                        'direction': 'improving' if trend < 0 else 'worsening' if trend > 0 else 'stable',
+                        'change_rate': abs(trend)
+                    }
+            
+            return trends
+        except Exception as e:
+            logger.error(f"Error analyzing trends: {str(e)}")
+            return {}
+
+    def _check_thresholds(self, changes, thresholds):
+        """Check if changes exceed thresholds"""
+        alerts = []
+        
+        for metric, data in changes.items():
+            if metric in thresholds:
+                threshold = thresholds[metric]
+                if abs(data['change']) >= threshold:
+                    alerts.append({
+                        'metric': metric,
+                        'change': data['change'],
+                        'threshold': threshold,
+                        'previous': data['previous'],
+                        'current': data['current'],
+                        'change_percent': data['change_percent']
+                    })
+        
+        return alerts
+
+    def _format_daily_report(self, report_data):
+        """Format daily report in HTML with modern tech styling"""
+        html_template = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Daily SonarCloud Metrics Report</title>
+            {self._get_report_css()}
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📊 Daily SonarCloud Metrics Report</h1>
+                    <div class="timestamp">Generated on: {report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
+                </div>
+
+                <div class="section-title">🎯 Current Metrics</div>
+                <div class="metrics-grid">
+                    {self._format_metrics_section(report_data['current_metrics'], report_data['changes'])}
+                </div>
+
+                <div class="section-title">⚠️ Critical Issues</div>
+                <div class="metrics-grid">
+                    {self._format_critical_section(report_data['critical_issues'])}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return html_template
+
+    def _format_weekly_report(self, report_data):
+        """Format weekly report in HTML with modern tech styling"""
+        html_template = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Weekly SonarCloud Metrics Report</title>
+            {self._get_report_css()}
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📊 Weekly SonarCloud Metrics Report</h1>
+                    <div class="timestamp">Generated on: {report_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
+                </div>
+
+                <div class="executive-summary">
+                    <h2>📋 Executive Summary</h2>
+                    <p>{report_data['executive_summary']}</p>
+                </div>
+
+                <div class="section-title">📈 Week-over-Week Changes</div>
+                <div class="metrics-grid">
+                    {self._format_metrics_section(report_data['current_metrics'], report_data['changes'])}
+                </div>
+
+                <div class="section-title">📊 Trend Analysis</div>
+                <div class="metrics-grid">
+                    {self._format_trends_grid(report_data['trend_analysis'])}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return html_template
+
+    def _format_metrics_section(self, metrics, changes=None):
+        """Format metrics section with modern styling"""
+        if not metrics:
+            return "<div class='metric-card'>No metrics data available</div>"
+
+        metrics_html = []
+        metrics_icons = {
+            'bugs': '🐛',
+            'vulnerabilities': '⚠️',
+            'code_smells': '🔍',
+            'coverage': '📊',
+            'duplicated_lines_density': '📝',
+            'ncloc': '📏'
+        }
+
+        for metric, icon in metrics_icons.items():
+            if metric in metrics[0]:
+                value = metrics[0][metric]
+                formatted_value = f"{value:.1f}%" if metric in ['coverage', 'duplicated_lines_density'] else value
+                
+                change_info = ""
+                if changes and metric in changes:
+                    change = changes[metric]
+                    change_class = 'trend-positive' if change['change'] < 0 else 'trend-negative' if change['change'] > 0 else 'trend-neutral'
+                    change_info = f"""
+                        <div class="metric-change {change_class}">
+                            {change['change_percent']:+.1f}%
+                        </div>
+                    """
+                
+                metrics_html.append(f"""
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <div class="metric-title">{icon} {metric.replace('_', ' ').title()}</div>
+                            {change_info}
+                        </div>
+                        <div class="metric-value">{formatted_value}</div>
+                    </div>
+                """)
+
+        return "\n".join(metrics_html)
+
+    def _format_critical_section(self, issues):
+        """Format critical issues section with modern styling"""
+        if not issues:
+            return "<div class='metric-card'>No critical issues data available</div>"
+
+        issues_html = []
+        severity_icons = {
+            'high_severity_bugs': '🐛',
+            'critical_vulnerabilities': '⚠️',
+            'major_code_smells': '🔍'
+        }
+        
+        for issue_type, icon in severity_icons.items():
+            count = issues[issue_type]
+            severity_class = 'trend-negative' if count > 0 else 'trend-positive'
+            
+            issues_html.append(f"""
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <div class="metric-title">{icon} {issue_type.replace('_', ' ').title()}</div>
+                        <div class="metric-change {severity_class}">
+                            {count}
+                        </div>
+                    </div>
+                    <div class="metric-value">{count}</div>
+                </div>
+            """)
+
+        return "\n".join(issues_html)
+
+    def _format_trends_grid(self, trends):
+        """Format trends with modern styling"""
+        if not trends:
+            return "<div class='metric-card'>No trend data available</div>"
+
+        trend_html = []
+        for metric, data in trends.items():
+            trend_class = {
+                'improving': 'trend-positive',
+                'worsening': 'trend-negative',
+                'stable': 'trend-neutral'
+            }.get(data['direction'], 'trend-neutral')
+
+            trend_icon = {
+                'improving': '📉',
+                'worsening': '📈',
+                'stable': '📊'
+            }.get(data['direction'], '📊')
+
+            trend_html.append(f"""
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <div class="metric-title">{trend_icon} {metric.replace('_', ' ').title()}</div>
+                        <div class="metric-change {trend_class}">
+                            {data['direction'].title()}
+                        </div>
+                    </div>
+                    <div class="metric-value">
+                        Change Rate: {data['change_rate']:.2f}/day
+                    </div>
+                </div>
+            """)
+
+        return "\n".join(trend_html)
+
+    def _format_metric_alerts(self, alerts):
+        """Format metric alerts with modern styling"""
+        html_template = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Metric Change Alert</title>
+            {self._get_report_css()}
+        </head>
+        <body>
+            <div class="container">
+                <div class="header alert-header">
+                    <h1>⚠️ Metric Change Alert</h1>
+                    <div class="timestamp">Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
+                </div>
+
+                <div class="alert-grid">
+                    {self._format_alerts_grid(alerts)}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return html_template
+
+    def _format_alerts_grid(self, alerts):
+        """Format alerts grid with modern styling"""
+        alerts_html = []
+        for alert in alerts:
+            trend_class = 'trend-negative' if alert['change'] > 0 else 'trend-positive'
+            alerts_html.append(f"""
+                <div class="metric-card alert-card">
+                    <div class="metric-header">
+                        <div class="metric-title">⚠️ {alert['metric'].replace('_', ' ').title()}</div>
+                        <div class="metric-change {trend_class}">
+                            {alert['change_percent']:+.1f}%
+                        </div>
+                    </div>
+                    <div class="metric-value">{alert['current']}</div>
+                    <div class="metric-detail">Previous: {alert['previous']}</div>
+                    <div class="metric-detail">Threshold: {alert['threshold']}</div>
+                </div>
+            """)
+        return "\n".join(alerts_html)
+
+    def _generate_executive_summary(self, current, previous):
+        """Generate executive summary comparing current state with previous period"""
+        if not current or not previous:
+            return "Insufficient data for executive summary"
+        
+        changes = self._calculate_changes(current, previous)
+        
+        summary = []
+        for metric, data in changes.items():
+            if abs(data['change_percent']) >= 5:  # Only report significant changes
+                direction = "improved" if data['change'] < 0 else "increased"
+                summary.append(f"{metric.replace('_', ' ').title()} has {direction} by {abs(data['change_percent']):.1f}%")
+        
+        return " | ".join(summary) if summary else "No significant changes detected"
+
+    def _get_default_thresholds(self):
+        """Get default thresholds for metric changes"""
+        return {
+            'bugs': 5,
+            'vulnerabilities': 3,
+            'code_smells': 10,
+            'coverage': -5,
+            'duplicated_lines_density': 5
+        }
+
+    def _get_report_css(self):
+        """Get modern tech-styled CSS for reports"""
+        return """
+            <style>
+                :root {
+                    --bg-primary: #1A1F25;
+                    --bg-secondary: #2D3748;
+                    --text-primary: #FAFAFA;
+                    --text-secondary: #A0AEC0;
+                    --accent-green: #48BB78;
+                    --accent-red: #F56565;
+                    --accent-yellow: #ECC94B;
+                }
+                
+                body {
+                    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background-color: var(--bg-primary);
+                    color: var(--text-secondary);
+                    line-height: 1.6;
+                    margin: 0;
+                    padding: 2rem;
+                }
+                
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }
+                
+                .header {
+                    padding: 2rem;
+                    background: var(--bg-secondary);
+                    border-radius: 12px;
+                    margin-bottom: 2rem;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                }
+                
+                .header h1 {
+                    color: var(--text-primary);
+                    margin: 0;
+                    font-size: 2rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                
+                .timestamp {
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    margin-top: 0.5rem;
+                }
+                
+                .metrics-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: 1.5rem;
+                    margin: 2rem 0;
+                }
+                
+                .metric-card {
+                    background: var(--bg-secondary);
+                    border-radius: 10px;
+                    padding: 1.5rem;
+                    transition: transform 0.2s ease;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                }
+                
+                .metric-card:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+                }
+                
+                .metric-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 1rem;
+                }
+                
+                .metric-title {
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                
+                .metric-value {
+                    color: var(--text-primary);
+                    font-size: 1.8rem;
+                    font-family: 'SF Mono', 'Consolas', monospace;
+                    font-weight: 600;
+                }
+                
+                .metric-change {
+                    font-size: 0.9rem;
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 12px;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                }
+                
+                .trend-positive {
+                    color: var(--accent-green);
+                    background: rgba(72, 187, 120, 0.1);
+                }
+                
+                .trend-negative {
+                    color: var(--accent-red);
+                    background: rgba(245, 101, 101, 0.1);
+                }
+                
+                .trend-neutral {
+                    color: var(--text-secondary);
+                    background: rgba(160, 174, 192, 0.1);
+                }
+                
+                .section-title {
+                    color: var(--text-primary);
+                    font-size: 1.5rem;
+                    margin: 2rem 0 1rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid var(--bg-secondary);
+                }
+                
+                .executive-summary {
+                    background: var(--bg-secondary);
+                    border-radius: 10px;
+                    padding: 1.5rem;
+                    margin: 2rem 0;
+                    border-left: 4px solid var(--accent-green);
+                }
+                
+                .executive-summary h2 {
+                    color: var(--text-primary);
+                    margin: 0 0 1rem 0;
+                }
+                
+                .metric-detail {
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    margin-top: 0.5rem;
+                }
+                
+                .alert-header {
+                    border-left: 4px solid var(--accent-yellow);
+                }
+                
+                .alert-card {
+                    border-left: 4px solid var(--accent-red);
+                }
+                
+                .alert-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: 1.5rem;
+                    margin: 2rem 0;
+                }
+            </style>
+        """
