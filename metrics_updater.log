@@ -472,3 +472,63 @@
 2024-11-07 19:45:05,969 - services.metrics_updater - INFO - [20241107_194505_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
 2024-11-07 19:45:05,970 - services.metrics_updater - INFO - [20241107_194505_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
 2024-11-07 19:45:07,911 - services.metrics_updater - INFO - [20241107_194505_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:50:23,149 - services.metrics_updater - INFO - [20241107_195023_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:50:23,163 - services.metrics_updater - INFO - [20241107_195023_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:50:23,906 - services.metrics_updater - INFO - [20241107_195023_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:50:25,071 - services.metrics_updater - INFO - [20241107_195023_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:50:31,045 - services.metrics_updater - INFO - [20241107_195031_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:50:31,045 - services.metrics_updater - INFO - [20241107_195031_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:50:31,817 - services.metrics_updater - INFO - [20241107_195031_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:50:33,028 - services.metrics_updater - INFO - [20241107_195031_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:50:47,809 - services.metrics_updater - INFO - [20241107_195047_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:50:47,810 - services.metrics_updater - INFO - [20241107_195047_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:50:48,604 - services.metrics_updater - INFO - [20241107_195047_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:50:49,773 - services.metrics_updater - INFO - [20241107_195047_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:52:07,130 - services.metrics_updater - INFO - [20241107_195207_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:52:07,130 - services.metrics_updater - INFO - [20241107_195207_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:52:07,893 - services.metrics_updater - INFO - [20241107_195207_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:52:09,084 - services.metrics_updater - INFO - [20241107_195207_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:55:23,145 - services.metrics_updater - INFO - [20241107_195523_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:55:23,146 - services.metrics_updater - INFO - [20241107_195523_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:55:23,852 - services.metrics_updater - INFO - [20241107_195523_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:55:24,999 - services.metrics_updater - INFO - [20241107_195523_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:55:31,045 - services.metrics_updater - INFO - [20241107_195531_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:55:31,045 - services.metrics_updater - INFO - [20241107_195531_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:55:31,781 - services.metrics_updater - INFO - [20241107_195531_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:55:32,943 - services.metrics_updater - INFO - [20241107_195531_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:55:47,809 - services.metrics_updater - INFO - [20241107_195547_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:55:47,809 - services.metrics_updater - INFO - [20241107_195547_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:55:48,556 - services.metrics_updater - INFO - [20241107_195547_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:55:49,764 - services.metrics_updater - INFO - [20241107_195547_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:57:07,128 - services.metrics_updater - INFO - [20241107_195707_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:57:07,128 - services.metrics_updater - INFO - [20241107_195707_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:57:07,899 - services.metrics_updater - INFO - [20241107_195707_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:57:09,058 - services.metrics_updater - INFO - [20241107_195707_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:58:01,034 - services.metrics_updater - INFO - [20241107_195801_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:58:01,034 - services.metrics_updater - INFO - [20241107_195801_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:58:01,815 - services.metrics_updater - INFO - [20241107_195801_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:58:03,003 - services.metrics_updater - INFO - [20241107_195801_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:58:13,472 - services.metrics_updater - INFO - [20241107_195813_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:58:13,472 - services.metrics_updater - INFO - [20241107_195813_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:58:14,188 - services.metrics_updater - INFO - [20241107_195813_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:58:15,372 - services.metrics_updater - INFO - [20241107_195813_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:58:31,324 - services.metrics_updater - INFO - [20241107_195831_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 19:58:31,324 - services.metrics_updater - INFO - [20241107_195831_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 19:58:32,084 - services.metrics_updater - INFO - [20241107_195831_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 19:58:33,268 - services.metrics_updater - INFO - [20241107_195831_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 19:58:35,631 - services.metrics_updater - INFO - [20241107_195835_repository_navisafit_GoApp_Push_Notification] Starting metrics update execution
+2024-11-07 19:58:35,631 - services.metrics_updater - INFO - [20241107_195835_repository_navisafit_GoApp_Push_Notification] Fetching metrics for repository: navisafit_GoApp_Push_Notification
+2024-11-07 19:58:36,347 - services.metrics_updater - INFO - [20241107_195835_repository_navisafit_GoApp_Push_Notification] Updated name from SonarCloud: 'GoApp_Push_Notification'
+2024-11-07 19:58:37,517 - services.metrics_updater - INFO - [20241107_195835_repository_navisafit_GoApp_Push_Notification] Successfully updated repository metrics
+2024-11-07 20:00:23,145 - services.metrics_updater - INFO - [20241107_200023_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 20:00:23,145 - services.metrics_updater - INFO - [20241107_200023_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 20:00:23,884 - services.metrics_updater - INFO - [20241107_200023_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 20:00:25,027 - services.metrics_updater - INFO - [20241107_200023_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 20:00:31,047 - services.metrics_updater - INFO - [20241107_200031_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 20:00:31,047 - services.metrics_updater - INFO - [20241107_200031_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 20:00:31,742 - services.metrics_updater - INFO - [20241107_200031_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 20:00:32,894 - services.metrics_updater - INFO - [20241107_200031_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
+2024-11-07 20:00:47,809 - services.metrics_updater - INFO - [20241107_200047_repository_navisafit_RouteTrackingT1.Services] Starting metrics update execution
+2024-11-07 20:00:47,809 - services.metrics_updater - INFO - [20241107_200047_repository_navisafit_RouteTrackingT1.Services] Fetching metrics for repository: navisafit_RouteTrackingT1.Services
+2024-11-07 20:00:48,533 - services.metrics_updater - INFO - [20241107_200047_repository_navisafit_RouteTrackingT1.Services] Updated name from SonarCloud: 'RouteTrackingT1.Services'
+2024-11-07 20:00:49,714 - services.metrics_updater - INFO - [20241107_200047_repository_navisafit_RouteTrackingT1.Services] Successfully updated repository metrics
