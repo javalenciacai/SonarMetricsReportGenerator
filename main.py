@@ -99,16 +99,22 @@ def get_all_projects_data():
         return {}
 
 def sync_all_projects():
-    """Trigger an immediate update for all active projects"""
-    query = """
-    SELECT repo_key
-    FROM repositories
-    WHERE is_active = true AND is_marked_for_deletion = false;
-    """
     try:
+        # Initialize and validate SonarCloud API first
+        sonar_api = SonarCloudAPI(os.getenv('SONARCLOUD_TOKEN'))
+        is_valid, message = sonar_api.validate_token()
+        if not is_valid:
+            return False, message
+
+        # Continue with fetching and updating projects
+        query = '''
+        SELECT repo_key
+        FROM repositories
+        WHERE is_active = true AND is_marked_for_deletion = false;
+        '''
         result = execute_query(query)
         if not result:
-            return False, "No active projects found"
+            return False, 'No active projects found'
         
         success_count = 0
         failed_count = 0
@@ -121,12 +127,12 @@ def sync_all_projects():
                 else:
                     failed_count += 1
             except Exception as e:
-                logger.error(f"Error updating project {row[0]}: {str(e)}")
+                logger.error(f'Error updating project {row[0]}: {str(e)}')
                 failed_count += 1
         
-        return True, f"Updated {success_count} projects successfully, {failed_count} failed"
+        return True, f'Updated {success_count} projects successfully, {failed_count} failed'
     except Exception as e:
-        logger.error(f"Error in sync_all_projects: {str(e)}")
+        logger.error(f'Error in sync_all_projects: {str(e)}')
         return False, str(e)
 
 def main():
