@@ -61,7 +61,7 @@ def retry_api_call(func, *args, max_retries=3, retry_delay=5):
         raise last_error
     return last_response
 
-def update_entity_metrics(entity_type, entity_id, preserve_name=False):
+def update_entity_metrics(entity_type, entity_id):
     """Update metrics for an entity (project or group) with enhanced error handling"""
     utc_now = datetime.now(timezone.utc)
     execution_id = f"{utc_now.strftime('%Y%m%d_%H%M%S')}_{entity_type}_{entity_id}"
@@ -96,7 +96,6 @@ def update_entity_metrics(entity_type, entity_id, preserve_name=False):
             try:
                 # Get existing project data first
                 project_data = metrics_processor.get_latest_metrics(entity_id)
-                existing_name = project_data.get('name', "") if project_data else ""
                 
                 try:
                     metrics = retry_api_call(sonar_api.get_project_metrics, entity_id)
@@ -104,11 +103,8 @@ def update_entity_metrics(entity_type, entity_id, preserve_name=False):
                         metrics_dict = {m['metric']: float(m['value']) for m in metrics}
                         logger.debug(f"[{execution_id}] Retrieved metrics: {list(metrics_dict.keys())}")
                         
-                        # Use existing name if preserve_name is True and name exists
-                        name_to_use = existing_name if preserve_name and existing_name else ""
-                        
                         # Reset consecutive failures on successful update
-                        success = metrics_processor.store_metrics(entity_id, name_to_use, metrics_dict, reset_failures=True)
+                        success = metrics_processor.store_metrics(entity_id, "", metrics_dict, reset_failures=True)
                         if success:
                             metrics_summary['updated_count'] += 1
                             metrics_summary['status'] = 'success'
