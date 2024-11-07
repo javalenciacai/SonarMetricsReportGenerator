@@ -116,7 +116,7 @@ class SchedulerService:
                 'last_run': timestamp
             }
 
-    def schedule_metrics_update(self, entity_type, entity_id, interval=3600):
+    def schedule_metrics_update(self, entity_type, entity_id, interval=3600, scheduler=None):
         """Schedule metrics update for a specific entity (repository or group)"""
         try:
             job_id = f"update_{entity_type}_{entity_id}"
@@ -125,7 +125,9 @@ class SchedulerService:
                 self.scheduler.remove_job(job_id)
                 self.logger.info(f"Removed existing job for {entity_type} {entity_id}")
             
-            self.scheduler.add_job(
+            scheduler_to_use = scheduler if scheduler else self.scheduler
+            
+            scheduler_to_use.add_job(
                 self._update_repository_metrics if entity_type == 'repository' else self._update_group_metrics,
                 IntervalTrigger(seconds=interval, timezone='UTC'),
                 id=job_id,
@@ -142,8 +144,7 @@ class SchedulerService:
                 'created_at': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             }
             
-            self.logger.info(f"Successfully scheduled {entity_type} update job for {entity_id} "
-                           f"with {interval}s interval")
+            self.logger.info(f"Successfully scheduled {entity_type} update job for {entity_id} with {interval}s interval")
             return True
             
         except Exception as e:
@@ -379,21 +380,4 @@ class SchedulerService:
 
     def get_job_status(self, job_id):
         """Get detailed status of a specific job"""
-        status = self.job_registry.get(job_id, {})
-        if status:
-            job = self.scheduler.get_job(job_id)
-            if job:
-                status['next_run'] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else None
-        return status
-
-    def get_all_job_statuses(self):
-        """Get status of all registered jobs"""
-        return {
-            job_id: {
-                **status,
-                'next_run': self.scheduler.get_job(job_id).next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-                if self.scheduler.get_job(job_id) and self.scheduler.get_job(job_id).next_run_time
-                else None
-            }
-            for job_id, status in self.job_registry.items()
-        }
+        return self.job_registry.get(job_id, None)
