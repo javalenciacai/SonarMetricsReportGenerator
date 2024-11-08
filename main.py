@@ -209,9 +209,10 @@ def main():
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-                
+
                 # Add manual update button for all projects
-                col1, col2 = st.columns([3, 1])
+                st.markdown("### 🔄 Update Status")
+                col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
                     if st.button("🔄 Update All Projects", use_container_width=True):
                         progress_bar = st.progress(0, "Starting update...")
@@ -219,17 +220,17 @@ def main():
                             success, projects_data = update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar)
                             if success:
                                 st.success(f"Updated {len(projects_data)} projects from SonarCloud")
-                                if projects_data:
-                                    display_multi_project_metrics(projects_data)
-                                    plot_multi_project_comparison(projects_data)
-                                else:
-                                    st.warning("No projects data available")
                             else:
                                 st.error("Failed to update projects from SonarCloud")
                         except Exception as e:
                             progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
                             st.error(f"Error updating projects: {str(e)}")
 
+                # Add spacing
+                st.markdown("---")
+
+                # Display metrics in separate section
+                st.markdown("### 📊 Project Metrics")
                 projects_data = metrics_processor.get_all_projects_metrics()
                 if projects_data:
                     display_multi_project_metrics(projects_data)
