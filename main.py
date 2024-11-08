@@ -92,6 +92,27 @@ def update_all_projects_data(sonar_api, metrics_processor):
         logger.error(f"Error updating project data: {str(e)}")
         return {}
 
+def manual_update_metrics(entity_type, entity_id, progress_bar):
+    """Perform manual update with progress tracking"""
+    try:
+        progress_bar.progress(0.2, "Initializing update...")
+        
+        success, summary = update_entity_metrics(entity_type, entity_id)
+        
+        progress_bar.progress(0.6, "Processing update...")
+        
+        if success:
+            progress_bar.progress(1.0, "✅ Update completed successfully!")
+            return True, summary.get('updated_count', 0)
+        else:
+            error_msg = summary.get('errors', ['Unknown error'])[0]
+            progress_bar.progress(1.0, f"❌ Update failed: {error_msg}")
+            return False, 0
+            
+    except Exception as e:
+        progress_bar.progress(1.0, f"❌ Error during update: {str(e)}")
+        return False, 0
+
 def main():
     try:
         st.set_page_config(
@@ -111,6 +132,7 @@ def main():
             st.session_state.show_inactive_projects = True
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
+            st.session_state.update_in_progress = False
 
         initialize_database()
         
@@ -215,8 +237,25 @@ def main():
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-                projects_data = update_all_projects_data(sonar_api, metrics_processor)
                 
+                # Add manual update button for all projects
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    if st.button("🔄 Update All Projects", use_container_width=True):
+                        progress_bar = st.progress(0, "Starting update...")
+                        try:
+                            projects_data = update_all_projects_data(sonar_api, metrics_processor)
+                            if projects_data:
+                                progress_bar.progress(1.0, "✅ All projects updated successfully!")
+                                st.success(f"Updated {len(projects_data)} projects")
+                            else:
+                                progress_bar.progress(1.0, "❌ No projects updated")
+                                st.warning("No projects data available")
+                        except Exception as e:
+                            progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
+                            st.error(f"Error updating projects: {str(e)}")
+                
+                projects_data = update_all_projects_data(sonar_api, metrics_processor)
                 if projects_data:
                     display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
@@ -229,6 +268,20 @@ def main():
                 st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
                 
                 is_inactive = not project_info.get('is_active', True)
+                
+                # Add manual update button for individual project
+                if not is_inactive:
+                    col1, col2 = st.columns([3, 1])
+                    with col2:
+                        if st.button("🔄 Update Metrics", use_container_width=True):
+                            progress_bar = st.progress(0, "Starting update...")
+                            success, updated_count = manual_update_metrics(
+                                'repository', 
+                                selected_project,
+                                progress_bar
+                            )
+                            if success:
+                                st.rerun()
                 
                 current_tab, trends_tab = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
                 
