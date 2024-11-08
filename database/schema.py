@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 def initialize_database():
     """Initialize database with all required tables and columns"""
-    # Create project groups table first (since repositories references it)
     create_groups_table = """
     CREATE TABLE IF NOT EXISTS project_groups (
         id SERIAL PRIMARY KEY,
@@ -14,7 +13,6 @@ def initialize_database():
     );
     """
     
-    # Create repositories table
     create_repositories_table = """
     CREATE TABLE IF NOT EXISTS repositories (
         id SERIAL PRIMARY KEY,
@@ -30,7 +28,6 @@ def initialize_database():
     );
     """
     
-    # Create report schedules table
     create_report_schedules_table = """
     CREATE TABLE IF NOT EXISTS report_schedules (
         id SERIAL PRIMARY KEY,
@@ -46,7 +43,6 @@ def initialize_database():
     """
     
     try:
-        # Add consecutive_failures column if it doesn't exist
         add_consecutive_failures = """
         DO $$
         BEGIN
@@ -61,7 +57,6 @@ def initialize_database():
         END $$;
         """
         
-        # Create metrics table with timezone-aware timestamps
         create_metrics_table = """
         CREATE TABLE IF NOT EXISTS metrics (
             id SERIAL PRIMARY KEY,
@@ -77,7 +72,6 @@ def initialize_database():
         );
         """
         
-        # Create policy acceptance table with timezone-aware timestamps
         create_policy_table = """
         CREATE TABLE IF NOT EXISTS policy_acceptance (
             id SERIAL PRIMARY KEY,
@@ -87,7 +81,6 @@ def initialize_database():
         );
         """
         
-        # Execute all creation queries
         execute_query(create_groups_table)
         execute_query(create_repositories_table)
         execute_query(add_consecutive_failures)
@@ -95,12 +88,10 @@ def initialize_database():
         execute_query(create_policy_table)
         execute_query(create_report_schedules_table)
         
-        # Update existing timestamp columns to use timezone if they don't already
         migration_queries = [
             """
             DO $$ 
             BEGIN 
-                -- Alter repositories table timestamps
                 IF EXISTS (
                     SELECT 1 
                     FROM information_schema.columns 
@@ -113,7 +104,6 @@ def initialize_database():
                     ALTER COLUMN last_seen TYPE TIMESTAMP WITH TIME ZONE;
                 END IF;
                 
-                -- Alter metrics table timestamp
                 IF EXISTS (
                     SELECT 1 
                     FROM information_schema.columns 
@@ -124,8 +114,7 @@ def initialize_database():
                     ALTER TABLE metrics 
                     ALTER COLUMN timestamp TYPE TIMESTAMP WITH TIME ZONE;
                 END IF;
-                
-                -- Alter policy_acceptance table timestamps
+
                 IF EXISTS (
                     SELECT 1 
                     FROM information_schema.columns 
@@ -180,7 +169,6 @@ def unmark_project_for_deletion(repo_key):
 def delete_project_data(repo_key):
     """Delete all data for a specific project that is marked for deletion"""
     try:
-        # First check if the project is marked for deletion
         check_query = """
         SELECT is_marked_for_deletion FROM repositories WHERE repo_key = %s;
         """
@@ -188,14 +176,12 @@ def delete_project_data(repo_key):
         if not result or not result[0][0]:
             return False, "Project must be marked for deletion first"
 
-        # Delete metrics first due to foreign key constraint
         delete_metrics_query = """
         DELETE FROM metrics
         WHERE repository_id = (SELECT id FROM repositories WHERE repo_key = %s);
         """
         execute_query(delete_metrics_query, (repo_key,))
 
-        # Finally delete the repository
         delete_repo_query = """
         DELETE FROM repositories
         WHERE repo_key = %s;
@@ -335,7 +321,6 @@ def get_update_preferences(entity_type, entity_id):
 def store_update_preferences(entity_type, entity_id, interval):
     """Store update interval preferences"""
     try:
-        # For repositories, update directly in repositories table
         if entity_type == 'repository':
             repo_query = """
             UPDATE repositories 
@@ -348,7 +333,6 @@ def store_update_preferences(entity_type, entity_id, interval):
             if not result:
                 return False
         
-        # For groups, update directly in project_groups table
         elif entity_type == 'group':
             try:
                 numeric_id = int(entity_id)
@@ -463,7 +447,6 @@ def remove_project_from_group(repo_key):
 def delete_project_group(group_id):
     """Delete a project group and unassign all projects"""
     try:
-        # First unassign all projects from the group
         unassign_query = """
         UPDATE repositories 
         SET group_id = NULL,
@@ -472,7 +455,6 @@ def delete_project_group(group_id):
         """
         execute_query(unassign_query, (group_id,))
 
-        # Then delete the group
         delete_query = """
         DELETE FROM project_groups 
         WHERE id = %s 

@@ -1,3 +1,4 @@
+import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
@@ -5,6 +6,9 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MI
 from datetime import datetime, timezone
 import logging
 from services.report_generator import ReportGenerator
+from database.schema import execute_query, get_update_preferences
+from services.metrics_updater import update_entity_metrics
+import json
 
 class SchedulerService:
     def __init__(self):
@@ -34,7 +38,6 @@ class SchedulerService:
                 self.logger.error(f"Job details: Type: {job_info.get('type')}, "
                              f"Entity: {job_info.get('entity_type')} {job_info.get('entity_id')}")
 
-                # Update job status with detailed error information
                 self.job_registry[job_id] = {
                     **job_info,
                     'last_status': 'failed',
@@ -49,9 +52,8 @@ class SchedulerService:
                     }
                 }
 
-                # Handle job retry logic
-                if job_info.get('error_count', 0) < 3:  # Limit retries
-                    retry_interval = 1800  # 30 minutes for report retries
+                if job_info.get('error_count', 0) < 3:
+                    retry_interval = 1800
                     self.logger.info(f"[{timestamp}] Scheduling retry for job {job_id} in {retry_interval} seconds")
                     try:
                         if job_info['type'] == 'report':
@@ -76,7 +78,7 @@ class SchedulerService:
                     'missed_runs': job_info.get('missed_runs', 0) + 1
                 }
 
-            else:  # Successful execution
+            else:
                 if hasattr(event, 'retval'):
                     success, execution_details = event.retval
                 else:
@@ -85,7 +87,6 @@ class SchedulerService:
                 status = 'success' if success else 'failed'
                 self.logger.info(f"[{timestamp}] Job {job_id} executed with status: {status}")
 
-                # Update job registry with execution details
                 self.job_registry[job_id] = {
                     **job_info,
                     'last_status': status,
@@ -100,7 +101,6 @@ class SchedulerService:
                     }
                 }
 
-                # Verify next execution
                 job = self.scheduler.get_job(job_id)
                 if job and job.next_run_time:
                     self.logger.info(f"[{timestamp}] Next execution for {job_id} scheduled at: "
@@ -117,23 +117,96 @@ class SchedulerService:
                 'last_run': timestamp
             }
 
+    def schedule_metrics_update(self, entity_type, entity_id, interval=3600):
+        """Schedule metrics update for a specific entity (repository or group)"""
+        try:
+            job_id = f"update_{entity_type}_{entity_id}"
+            
+            if job_id in self.job_registry:
+                self.scheduler.remove_job(job_id)
+                self.logger.info(f"Removed existing job for {entity_type} {entity_id}")
+            
+            self.scheduler.add_job(
+                func=lambda: update_entity_metrics(entity_type, entity_id),
+                trigger=IntervalTrigger(seconds=interval, timezone='UTC'),
+                id=job_id,
+                name=f"Update {entity_type} {entity_id}",
+                replace_existing=True
+            )
+            
+            self.job_registry[job_id] = {
+                'type': 'update',
+                'entity_type': entity_type,
+                'entity_id': entity_id,
+                'interval': interval,
+                'created_at': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            self.logger.info(f"Successfully scheduled {entity_type} update job for {entity_id} with {interval}s interval")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to schedule {entity_type} update job for {entity_id}: {str(e)}")
+            return False
+
+    def initialize_update_intervals(self):
+        """Initialize update intervals for all repositories from database"""
+        query = """
+        SELECT repo_key, update_interval
+        FROM repositories
+        WHERE is_active = true;
+        """
+        try:
+            result = execute_query(query)
+            if result:
+                for repo_key, interval in result:
+                    job_id = f"update_{repo_key}"
+                    if interval > 0:
+                        self.schedule_metrics_update('repository', repo_key, interval)
+                        self.logger.info(f"Initialized update job for {repo_key} with {interval}s interval")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error initializing update intervals: {str(e)}")
+            return False
+
     def start(self):
-        """Start the scheduler"""
+        """Start the scheduler with automatic interval initialization"""
         try:
             if not self.scheduler.running:
                 self.scheduler.start()
                 self.logger.info("Scheduler started successfully (UTC)")
                 self.verify_scheduler_state()
                 self._schedule_default_reports()
+                self.initialize_update_intervals()
             return True
         except Exception as e:
             self.logger.error(f"Failed to start scheduler: {str(e)}")
             return False
 
+    def verify_scheduler_state(self):
+        """Verify scheduler state and log active jobs"""
+        try:
+            active_jobs = self.scheduler.get_jobs()
+            self.logger.info(f"Current scheduler state - Active jobs: {len(active_jobs)}")
+            for job in active_jobs:
+                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else "Not scheduled"
+                job_status = self.get_job_status(job.id)
+                self.logger.info(
+                    f"Job ID: {job.id}, Next run: {next_run}, "
+                    f"Status: {job_status.get('last_status') if job_status else 'unknown'}"
+                )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error verifying scheduler state: {str(e)}")
+            return False
+
+    def get_job_status(self, job_id):
+        """Get detailed status of a specific job"""
+        return self.job_registry.get(job_id, None)
+
     def _schedule_default_reports(self):
         """Schedule default daily and weekly reports"""
         try:
-            # Daily report at 1:00 AM UTC
             self.scheduler.add_job(
                 self._generate_daily_report,
                 CronTrigger(hour=1, minute=0, timezone='UTC'),
@@ -142,7 +215,6 @@ class SchedulerService:
                 replace_existing=True
             )
 
-            # Weekly report on Monday at 2:00 AM UTC
             self.scheduler.add_job(
                 self._generate_weekly_report,
                 CronTrigger(day_of_week='mon', hour=2, minute=0, timezone='UTC'),
@@ -151,7 +223,6 @@ class SchedulerService:
                 replace_existing=True
             )
 
-            # Metric change alerts every 4 hours
             self.scheduler.add_job(
                 self._check_metric_changes,
                 IntervalTrigger(hours=4, timezone='UTC'),
@@ -209,11 +280,10 @@ class SchedulerService:
             if alerts:
                 recipients = self._get_report_recipients('alerts')
                 if recipients:
-                    alert_html = self._format_metric_alerts(alerts)
                     success = self.report_generator.send_email(
                         recipients,
                         "SonarCloud Metric Change Alert",
-                        alert_html,
+                        alerts,
                         'HTML'
                     )
                     return success, {"alert_count": len(alerts)}
@@ -230,7 +300,6 @@ class SchedulerService:
         WHERE report_type = %s AND is_active = true;
         """
         try:
-            from database.schema import execute_query
             result = execute_query(query, (report_type,))
             if result:
                 recipients = set()
@@ -244,61 +313,3 @@ class SchedulerService:
         except Exception as e:
             self.logger.error(f"Error getting report recipients: {str(e)}")
             return []
-
-    def _format_metric_alerts(self, alerts):
-        """Format metric alerts into HTML"""
-        template = """
-        <h2>SonarCloud Metric Change Alert</h2>
-        <p>The following significant changes have been detected:</p>
-        <ul>
-        {}
-        </ul>
-        """
-        
-        alert_items = []
-        for alert in alerts:
-            direction = "increased" if alert['change'] > 0 else "decreased"
-            alert_items.append(
-                f"<li><strong>{alert['metric'].replace('_', ' ').title()}</strong> has {direction} "
-                f"by {abs(alert['change'])} (Threshold: {alert['threshold']})</li>"
-            )
-        
-        return template.format("\n".join(alert_items))
-
-    def verify_scheduler_state(self):
-        """Verify scheduler state and log active jobs"""
-        try:
-            active_jobs = self.scheduler.get_jobs()
-            self.logger.info(f"Current scheduler state - Active jobs: {len(active_jobs)}")
-            for job in active_jobs:
-                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else "Not scheduled"
-                job_status = self.get_job_status(job.id)
-                self.logger.info(
-                    f"Job ID: {job.id}, Next run: {next_run}, "
-                    f"Status: {job_status.get('last_status') if job_status else 'unknown'}"
-                )
-            return True
-        except Exception as e:
-            self.logger.error(f"Error verifying scheduler state: {str(e)}")
-            return False
-
-    def get_job_status(self, job_id):
-        """Get detailed status of a specific job"""
-        status = self.job_registry.get(job_id, {})
-        if status:
-            job = self.scheduler.get_job(job_id)
-            if job:
-                status['next_run'] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if job.next_run_time else None
-        return status
-
-    def get_all_job_statuses(self):
-        """Get status of all registered jobs"""
-        return {
-            job_id: {
-                **status,
-                'next_run': self.scheduler.get_job(job_id).next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-                if self.scheduler.get_job(job_id) and self.scheduler.get_job(job_id).next_run_time
-                else None
-            }
-            for job_id, status in self.job_registry.items()
-        }

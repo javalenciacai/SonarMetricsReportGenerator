@@ -65,7 +65,6 @@ def display_interval_settings(entity_type, entity_id, scheduler_service):
                     # Schedule metrics update with proper error handling
                     try:
                         scheduler_service.schedule_metrics_update(
-                            update_entity_metrics,
                             entity_type,
                             entity_id,
                             interval_seconds
