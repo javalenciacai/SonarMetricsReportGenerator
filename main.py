@@ -28,69 +28,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def update_all_projects_data(sonar_api, metrics_processor):
-    """Update metrics for all projects from database"""
-    logger.info("Starting update for all projects")
-    
-    # Get all projects from database
-    query = """
-    SELECT 
-        r.repo_key,
-        r.name,
-        r.is_active,
-        r.is_marked_for_deletion,
-        m.bugs,
-        m.vulnerabilities,
-        m.code_smells,
-        m.coverage,
-        m.duplicated_lines_density,
-        m.ncloc,
-        m.sqale_index,
-        m.timestamp AT TIME ZONE 'UTC' as last_update
-    FROM repositories r
-    LEFT JOIN metrics m ON m.repository_id = r.id
-    WHERE m.timestamp = (
-        SELECT MAX(timestamp)
-        FROM metrics m2
-        WHERE m2.repository_id = r.id
-    )
-    OR m.timestamp IS NULL;
-    """
-    
+def update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar):
     try:
-        result = execute_query(query)
+        progress_bar.progress(0.1, "Fetching projects from SonarCloud...")
+        projects = sonar_api.get_projects()
+        
+        if not projects:
+            progress_bar.progress(1.0, "❌ No projects found in SonarCloud")
+            return False, {}
+            
+        total_projects = len(projects)
         updated_projects = {}
         
-        for row in result:
-            project_data = dict(row)
-            project_key = project_data['repo_key']
+        for idx, project in enumerate(projects, 1):
+            progress = 0.1 + (0.9 * (idx / total_projects))
+            progress_bar.progress(progress, f"Updating {project['name']} ({idx}/{total_projects})")
             
-            if project_data['last_update']:
-                metrics_dict = {
-                    'bugs': float(project_data['bugs']),
-                    'vulnerabilities': float(project_data['vulnerabilities']),
-                    'code_smells': float(project_data['code_smells']),
-                    'coverage': float(project_data['coverage']),
-                    'duplicated_lines_density': float(project_data['duplicated_lines_density']),
-                    'ncloc': float(project_data['ncloc']),
-                    'sqale_index': float(project_data['sqale_index'])
-                }
+            try:
+                metrics = sonar_api.get_project_metrics(project['key'])
+                if metrics:
+                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                    metrics_processor.store_metrics(project['key'], project['name'], metrics_dict, reset_failures=True)
+                    updated_projects[project['key']] = {
+                        'name': project['name'],
+                        'metrics': metrics_dict,
+                        'is_active': True
+                    }
+            except Exception as e:
+                logger.error(f"Error updating project {project['key']}: {str(e)}")
                 
-                updated_projects[project_key] = {
-                    'name': project_data['name'],
-                    'metrics': metrics_dict,
-                    'is_active': project_data['is_active'],
-                    'is_marked_for_deletion': project_data['is_marked_for_deletion']
-                }
-                logger.info(f"Retrieved metrics for project: {project_key}")
-            else:
-                logger.warning(f"No metrics found for project: {project_key}")
-        
-        return updated_projects
+        progress_bar.progress(1.0, "✅ Update completed!")
+        return True, updated_projects
         
     except Exception as e:
-        logger.error(f"Error updating project data: {str(e)}")
-        return {}
+        progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
+        return False, {}
 
 def manual_update_metrics(entity_type, entity_id, progress_bar):
     """Perform manual update with progress tracking"""
@@ -244,18 +216,21 @@ def main():
                     if st.button("🔄 Update All Projects", use_container_width=True):
                         progress_bar = st.progress(0, "Starting update...")
                         try:
-                            projects_data = update_all_projects_data(sonar_api, metrics_processor)
-                            if projects_data:
-                                progress_bar.progress(1.0, "✅ All projects updated successfully!")
-                                st.success(f"Updated {len(projects_data)} projects")
+                            success, projects_data = update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar)
+                            if success:
+                                st.success(f"Updated {len(projects_data)} projects from SonarCloud")
+                                if projects_data:
+                                    display_multi_project_metrics(projects_data)
+                                    plot_multi_project_comparison(projects_data)
+                                else:
+                                    st.warning("No projects data available")
                             else:
-                                progress_bar.progress(1.0, "❌ No projects updated")
-                                st.warning("No projects data available")
+                                st.error("Failed to update projects from SonarCloud")
                         except Exception as e:
                             progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
                             st.error(f"Error updating projects: {str(e)}")
-                
-                projects_data = update_all_projects_data(sonar_api, metrics_processor)
+
+                projects_data = metrics_processor.get_all_projects_metrics()
                 if projects_data:
                     display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
