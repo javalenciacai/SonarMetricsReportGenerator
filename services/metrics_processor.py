@@ -345,3 +345,51 @@ class MetricsProcessor:
         except Exception as e:
             logger.error(f"Error getting projects in group {group_id}: {str(e)}")
             return []
+
+    @staticmethod
+    def get_all_projects_metrics():
+        """Get metrics for all projects from database"""
+        query = '''
+        WITH LatestMetrics AS (
+            SELECT 
+                r.repo_key,
+                r.name,
+                r.is_active,
+                m.bugs,
+                m.vulnerabilities,
+                m.code_smells,
+                m.coverage,
+                m.duplicated_lines_density,
+                m.ncloc,
+                m.sqale_index,
+                ROW_NUMBER() OVER (PARTITION BY r.repo_key ORDER BY m.timestamp DESC) as rn
+            FROM repositories r
+            JOIN metrics m ON m.repository_id = r.id
+        )
+        SELECT * FROM LatestMetrics WHERE rn = 1;
+        '''
+        try:
+            result = execute_query(query)
+            if not result:
+                return {}
+                
+            projects_data = {}
+            for row in result:
+                metrics_dict = {
+                    'bugs': float(row['bugs']),
+                    'vulnerabilities': float(row['vulnerabilities']),
+                    'code_smells': float(row['code_smells']),
+                    'coverage': float(row['coverage']),
+                    'duplicated_lines_density': float(row['duplicated_lines_density']),
+                    'ncloc': float(row['ncloc']),
+                    'sqale_index': float(row['sqale_index'])
+                }
+                projects_data[row['repo_key']] = {
+                    'name': row['name'],
+                    'metrics': metrics_dict,
+                    'is_active': row['is_active']
+                }
+            return projects_data
+        except Exception as e:
+            logger.error(f"Error getting all projects metrics: {str(e)}")
+            return {}
