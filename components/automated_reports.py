@@ -95,7 +95,27 @@ def save_report_schedule(report_type, frequency, recipients, report_format):
             query, 
             (report_type, frequency, json.dumps(recipients), report_format, frequency, frequency)
         )
-        return result[0][0] if result else None
+        
+        if result:
+            # Generate and send initial report
+            report_generator = ReportGenerator()
+            if report_type == 'daily':
+                report = report_generator.generate_daily_report()
+            elif report_type == 'weekly':
+                report = report_generator.generate_weekly_report()
+            else:
+                report = report_generator.check_metric_changes()
+
+            if report and recipients:
+                report_generator.send_email(
+                    recipients,
+                    f"{report_type.title()} SonarCloud Metrics Report (Initial)",
+                    report,
+                    report_format
+                )
+            
+            return result[0][0]
+        return None
     except Exception as e:
         st.error(f"Error saving report schedule: {str(e)}")
         return None
@@ -170,16 +190,17 @@ def display_automated_reports():
                 st.error("Please enter at least one recipient email address")
             else:
                 recipient_list = [email.strip() for email in recipients.split(",")]
-                schedule_id = save_report_schedule(
-                    report_type, 
-                    frequency, 
-                    recipient_list,
-                    report_format
-                )
-                
-                if schedule_id:
-                    st.success("✅ Report schedule created successfully!")
-                    st.experimental_rerun()
+                with st.spinner("Creating schedule and generating initial report..."):
+                    schedule_id = save_report_schedule(
+                        report_type, 
+                        frequency, 
+                        recipient_list,
+                        report_format
+                    )
+                    
+                    if schedule_id:
+                        st.success("✅ Report schedule created and initial report sent!")
+                        st.rerun()
     
     # Display existing schedules
     st.markdown("### 📋 Existing Schedules")
@@ -208,18 +229,22 @@ def display_automated_reports():
                 
                 with col3:
                     status = schedule['is_active']
-                    if st.toggle("Active", value=status, key=f"toggle_{schedule['id']}"):
+                    toggle_key = f"toggle_{schedule['id']}"
+                    if st.toggle("Active", value=status, key=toggle_key):
                         if not status:
-                            if toggle_schedule_status(schedule['id'], True):
-                                st.success("Schedule activated")
-                                st.experimental_rerun()
+                            with st.spinner("Activating schedule..."):
+                                if toggle_schedule_status(schedule['id'], True):
+                                    st.success("Schedule activated")
+                                    st.rerun()
                     else:
                         if status:
-                            if toggle_schedule_status(schedule['id'], False):
-                                st.warning("Schedule deactivated")
-                                st.experimental_rerun()
+                            with st.spinner("Deactivating schedule..."):
+                                if toggle_schedule_status(schedule['id'], False):
+                                    st.warning("Schedule deactivated")
+                                    st.rerun()
                     
                     if st.button("🗑️", key=f"delete_{schedule['id']}"):
-                        if delete_report_schedule(schedule['id']):
-                            st.success("Schedule deleted")
-                            st.experimental_rerun()
+                        with st.spinner("Deleting schedule..."):
+                            if delete_report_schedule(schedule['id']):
+                                st.success("Schedule deleted")
+                                st.rerun()
