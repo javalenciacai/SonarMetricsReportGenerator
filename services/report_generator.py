@@ -82,7 +82,7 @@ class ReportGenerator:
             msg['From'] = self.smtp_username
             msg['To'] = ', '.join(recipients)
             
-            content_type = 'html' if report_format.lower() == 'html' else 'plain'
+            content_type = 'html' if report_format.lower() == 'HTML' else 'plain'
             msg.attach(MIMEText(content, content_type))
             
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
@@ -749,3 +749,25 @@ class ReportGenerator:
                 }
             </style>
         """
+
+    def get_report_recipients(self, report_type):
+        """Get recipients for a specific report type"""
+        query = """
+        SELECT recipients
+        FROM report_schedules
+        WHERE report_type = %s AND is_active = true;
+        """
+        try:
+            result = execute_query(query, (report_type,))
+            if result:
+                recipients = set()
+                for row in result:
+                    if isinstance(row[0], str):
+                        recipients.update(json.loads(row[0]))
+                    else:
+                        recipients.update(row[0])
+                return list(recipients)
+            return []
+        except Exception as e:
+            logger.error(f"Error getting report recipients: {str(e)}")
+            return []
