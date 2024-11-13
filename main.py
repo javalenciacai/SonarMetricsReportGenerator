@@ -147,12 +147,23 @@ def manual_update_metrics(entity_type, entity_id, progress_bar):
                 report_generator = ReportGenerator()
                 daily_report = report_generator.generate_daily_report(entity_id)
                 if daily_report:
-                    recipients = report_generator._get_report_recipients('daily')
+                    recipients = report_generator.get_report_recipients('daily')
                     if recipients:
                         report_generator.send_email(
                             recipients,
                             "Daily SonarCloud Metrics Report (Auto-Update)",
                             daily_report,
+                            'HTML'
+                        )
+
+                weekly_report = report_generator.generate_weekly_report(entity_id)
+                if weekly_report:
+                    recipients = report_generator.get_report_recipients('weekly')
+                    if recipients:
+                        report_generator.send_email(
+                            recipients,
+                            "Weekly SonarCloud Metrics Report (Auto-Update)",
+                            weekly_report,
                             'HTML'
                         )
 
@@ -327,7 +338,7 @@ def main():
                             weekly_report = report_generator.generate_weekly_report()
                             
                             if daily_report:
-                                recipients = report_generator._get_report_recipients('daily')
+                                recipients = report_generator.get_report_recipients('daily')
                                 if recipients:
                                     report_generator.send_email(
                                         recipients,
@@ -337,7 +348,7 @@ def main():
                                     )
                             
                             if weekly_report:
-                                recipients = report_generator._get_report_recipients('weekly')
+                                recipients = report_generator.get_report_recipients('weekly')
                                 if recipients:
                                     report_generator.send_email(
                                         recipients,

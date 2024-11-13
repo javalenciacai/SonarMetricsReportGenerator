@@ -240,7 +240,7 @@ class SchedulerService:
         try:
             report = self.report_generator.generate_daily_report()
             if report:
-                recipients = self._get_report_recipients('daily')
+                recipients = self.report_generator.get_report_recipients('daily')
                 if recipients:
                     success = self.report_generator.send_email(
                         recipients,
@@ -259,7 +259,7 @@ class SchedulerService:
         try:
             report = self.report_generator.generate_weekly_report()
             if report:
-                recipients = self._get_report_recipients('weekly')
+                recipients = self.report_generator.get_report_recipients('weekly')
                 if recipients:
                     success = self.report_generator.send_email(
                         recipients,
@@ -278,7 +278,7 @@ class SchedulerService:
         try:
             alerts = self.report_generator.check_metric_changes()
             if alerts:
-                recipients = self._get_report_recipients('alerts')
+                recipients = self.report_generator.get_report_recipients('alerts')
                 if recipients:
                     success = self.report_generator.send_email(
                         recipients,
