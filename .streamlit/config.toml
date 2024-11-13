@@ -1,7 +1,27 @@
 [server]
 headless = true
 address = "0.0.0.0"
-port = 5010
+port = 5000
+enableXsrfProtection = false
+enableCORS = false
+maxUploadSize = 200
+maxMessageSize = 200
+enableWebsocketCompression = true
+runOnSave = true
 
-[general]
-timezone = "UTC"
+[browser]
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+serverPort = 5000
+
+[theme]
+base = "dark"
+
+[client]
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[runner]
+fastReruns = true
+magicEnabled = true
+installTracer = true
