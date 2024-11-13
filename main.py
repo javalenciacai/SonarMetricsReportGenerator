@@ -21,174 +21,304 @@ from database.connection import execute_query
 import logging
 from datetime import datetime, timezone, timedelta
 import requests
+import time
+import sys
+import traceback
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('app.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 
 def initialize_session_state():
-    """Initialize or reset session state variables"""
-    session_vars = {
-        'initialized': True,
-        'policies_accepted': False,
-        'selected_project': None,
-        'selected_group': None,
-        'show_inactive': False,
-        'previous_project': None,
-        'show_inactive_projects': True,
-        'sonar_token': None,
-        'view_mode': "Individual Projects",
-        'update_in_progress': False,
-        'last_update_time': {},
-        'metrics_cache': {},
-        'current_metrics': {},
-        'project_metrics': {},
-        'historical_data': {},
-        'update_locks': {},
-        'last_metrics_update': {},  # Track last update time per project
-        'pending_rerun': False  # New flag to control reruns
-    }
+    """Initialize or reset session state variables with improved error handling"""
+    try:
+        session_vars = {
+            'initialized': True,
+            'policies_accepted': False,
+            'selected_project': None,
+            'selected_group': None,
+            'show_inactive': False,
+            'previous_project': None,
+            'show_inactive_projects': True,
+            'sonar_token': None,
+            'view_mode': "Individual Projects",
+            'update_in_progress': False,
+            'last_update_time': {},
+            'metrics_cache': {},
+            'current_metrics': {},
+            'project_metrics': {},
+            'historical_data': {},
+            'update_locks': {},
+            'last_metrics_update': {},
+            'update_status': {},
+            'update_progress': 0.0,
+            'update_message': '',
+            'update_error': None,
+            'throttle_updates': {},
+            'rerun_requested': False,
+            'rerun_safe': True,
+            'last_rerun_time': 0,
+            'update_queue': [],
+            'current_update_batch': None,
+            'last_successful_update': None,
+            'batch_size': 2,
+            'update_timeout': 30,
+            'last_error_count': 0,
+            'consecutive_errors': 0,
+            'startup_complete': False
+        }
+        
+        for var, default in session_vars.items():
+            if var not in st.session_state:
+                st.session_state[var] = default
+                
+        logger.info("Session state initialized successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Error initializing session state: {str(e)}")
+        return False
+
+def handle_startup():
+    """Handle application startup with proper error handling"""
+    try:
+        if not st.session_state.get('startup_complete'):
+            logger.info("Starting application initialization")
+            initialize_database()
+            scheduler = SchedulerService()
+            if not scheduler.scheduler.running:
+                scheduler.start()
+            st.session_state.startup_complete = True
+            logger.info("Application initialization completed successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Error during startup: {str(e)}\n{traceback.format_exc()}")
+        return False
+
+def can_update_project(project_key, min_interval=5):
+    """Check if project can be updated based on throttling rules"""
+    if st.session_state.update_in_progress:
+        logger.info("Update already in progress")
+        return False
     
-    for var, default in session_vars.items():
-        if var not in st.session_state:
-            st.session_state[var] = default
+    if st.session_state.consecutive_errors >= 3:
+        logger.warning("Too many consecutive errors, cooling down")
+        return False
+        
+    current_time = time.time()
+    last_update = st.session_state.throttle_updates.get(project_key, 0)
+    return (current_time - last_update) >= min_interval
+
+def cleanup_session_state():
+    """Cleanup session state after updates"""
+    logger.info("Cleaning up session state")
+    st.session_state.update_in_progress = False
+    st.session_state.rerun_requested = False
+    st.session_state.update_error = None
+    st.session_state.update_progress = 0.0
+    st.session_state.update_message = ''
+    st.session_state.metrics_cache = {}
+    st.session_state.rerun_safe = True
+    st.session_state.update_queue = []
+    st.session_state.current_update_batch = None
+    st.session_state.consecutive_errors = 0
+    st.session_state.last_error_count = 0
 
 def safe_rerun():
     """Safely handle rerun requests to prevent infinite loops"""
-    if not st.session_state.get('pending_rerun', False):
-        st.session_state.pending_rerun = True
-        st.rerun()
-
-def update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar):
-    """Update all projects from SonarCloud with progress tracking"""
-    try:
-        if st.session_state.get('update_in_progress'):
-            logger.info("Update already in progress")
-            return False, {}
-
-        st.session_state.update_in_progress = True
-        progress_bar.progress(0.1, "Fetching projects from SonarCloud...")
-        projects = sonar_api.get_projects()
+    current_time = time.time()
+    
+    if (not st.session_state.rerun_requested and 
+        st.session_state.rerun_safe and 
+        (current_time - st.session_state.last_rerun_time) > 2):  # Increased minimum interval
         
-        if not projects:
-            progress_bar.progress(1.0, "❌ No projects found in SonarCloud")
-            st.session_state.update_in_progress = False
-            return False, {}
-            
-        total_projects = len(projects)
-        updated_projects = {}
-        
-        for idx, project in enumerate(projects, 1):
-            progress = 0.1 + (0.9 * (idx / total_projects))
-            progress_bar.progress(progress, f"Updating {project['name']} ({idx}/{total_projects})")
-            
-            try:
-                if not st.session_state.get(f'update_lock_{project["key"]}'):
-                    metrics = sonar_api.get_project_metrics(project['key'])
-                    if metrics:
-                        metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                        metrics_processor.store_metrics(project['key'], project['name'], metrics_dict, reset_failures=True)
-                        updated_projects[project['key']] = {
-                            'name': project['name'],
-                            'metrics': metrics_dict,
-                            'is_active': True
-                        }
-                        st.session_state.last_metrics_update[project['key']] = datetime.now(timezone.utc).timestamp()
-            except Exception as e:
-                logger.error(f"Error updating project {project['key']}: {str(e)}")
-                
-        progress_bar.progress(1.0, "✅ Update completed!")
-        st.session_state.update_in_progress = False
-        return True, updated_projects
-        
-    except Exception as e:
-        logger.error(f"Error in update_all_projects: {str(e)}")
-        progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
-        st.session_state.update_in_progress = False
-        return False, {}
-
-def manual_update_metrics(entity_type, entity_id, progress_bar):
-    """Perform manual update with progress tracking"""
-    try:
-        current_time = datetime.now(timezone.utc).timestamp()
-        last_update = st.session_state.last_metrics_update.get(entity_id, 0)
-        
-        # Prevent updates more frequently than every 5 seconds
-        if (current_time - last_update) < 5:
-            logger.info(f"Update for {entity_id} skipped - too soon since last update")
-            return False, 0
-
-        # Check update locks
-        if st.session_state.get('update_in_progress') or st.session_state.get(f'update_lock_{entity_id}'):
-            logger.info(f"Update already in progress for {entity_id}")
-            return False, 0
-
-        # Set locks
-        st.session_state.update_in_progress = True
-        st.session_state[f'update_lock_{entity_id}'] = True
+        logger.info("Requesting safe rerun")
+        st.session_state.rerun_requested = True
+        st.session_state.rerun_safe = False
+        st.session_state.last_rerun_time = current_time
         
         try:
-            progress_bar.progress(0.2, "Initializing update...")
-            success, summary = update_entity_metrics(entity_type, entity_id)
-            
-            if success:
-                progress_bar.progress(0.8, "Generating updated reports...")
-                # Update timestamps and clear caches
-                st.session_state.last_metrics_update[entity_id] = current_time
-                st.session_state.metrics_cache.pop(entity_id, None)
-                st.session_state.current_metrics.pop(entity_id, None)
-                st.session_state.project_metrics.pop(entity_id, None)
-                st.session_state.historical_data.pop(entity_id, None)
+            time.sleep(0.5)  # Small delay to ensure state is properly updated
+            st.rerun()
+        except Exception as e:
+            logger.error(f"Error during rerun: {str(e)}")
+            st.session_state.rerun_safe = True
+            st.session_state.consecutive_errors += 1
 
-                # Generate and send reports after successful update
-                report_generator = ReportGenerator()
-                daily_report = report_generator.generate_daily_report(entity_id)
-                if daily_report:
-                    recipients = report_generator.get_report_recipients('daily')
-                    if recipients:
-                        report_generator.send_email(
-                            recipients,
-                            "Daily SonarCloud Metrics Report (Auto-Update)",
-                            daily_report,
-                            'HTML'
-                        )
+def batch_update_projects(sonar_api, metrics_processor, batch_size=None):
+    """Update projects in smaller batches to prevent UI freeze"""
+    batch_size = batch_size or st.session_state.batch_size
+    
+    if not st.session_state.update_queue:
+        try:
+            projects = sonar_api.get_projects()
+            if not projects:
+                return False, "No projects found"
+            st.session_state.update_queue = projects
+            st.session_state.current_update_batch = []
+            logger.info(f"Initialized update queue with {len(projects)} projects")
+        except Exception as e:
+            logger.error(f"Error fetching projects: {str(e)}")
+            st.session_state.consecutive_errors += 1
+            return False, str(e)
+    
+    if not st.session_state.current_update_batch:
+        st.session_state.current_update_batch = st.session_state.update_queue[:batch_size]
+        st.session_state.update_queue = st.session_state.update_queue[batch_size:]
+        logger.info(f"Created new batch of {len(st.session_state.current_update_batch)} projects")
+    
+    return process_update_batch(sonar_api, metrics_processor)
 
-                weekly_report = report_generator.generate_weekly_report(entity_id)
-                if weekly_report:
-                    recipients = report_generator.get_report_recipients('weekly')
-                    if recipients:
-                        report_generator.send_email(
-                            recipients,
-                            "Weekly SonarCloud Metrics Report (Auto-Update)",
-                            weekly_report,
-                            'HTML'
-                        )
-
-                progress_bar.progress(1.0, "✅ Update and reports completed!")
-                st.rerun()
-                return True, summary.get('updated_count', 0)
-            else:
-                error_msg = summary.get('errors', ['Unknown error'])[0]
-                progress_bar.progress(1.0, f"❌ Update failed: {error_msg}")
-                return False, 0
+def process_update_batch(sonar_api, metrics_processor):
+    """Process a batch of projects for updating with improved error handling"""
+    if not st.session_state.current_update_batch:
+        st.session_state.last_successful_update = time.time()
+        st.session_state.consecutive_errors = 0
+        return True, st.session_state.metrics_cache
+    
+    start_time = time.time()
+    try:
+        batch = st.session_state.current_update_batch
+        total_batches = max(1, len(st.session_state.update_queue) // st.session_state.batch_size + 1)
+        current_batch = total_batches - (len(st.session_state.update_queue) // st.session_state.batch_size)
+        
+        for idx, project in enumerate(batch):
+            # Check for timeout
+            if time.time() - start_time > st.session_state.update_timeout:
+                logger.warning("Update timeout reached")
+                raise TimeoutError("Update operation timed out")
                 
-        finally:
-            # Always release locks
-            st.session_state.update_in_progress = False
-            st.session_state[f'update_lock_{entity_id}'] = False
+            if not can_update_project(project['key']):
+                logger.info(f"Skipping project {project['key']} due to throttling")
+                continue
+                
+            progress = (current_batch - 1 + (idx + 1) / len(batch)) / total_batches
+            st.session_state.update_progress = min(0.99, progress)
+            st.session_state.update_message = f"Batch {current_batch}/{total_batches}: Updating {project['name']}"
             
+            try:
+                metrics = sonar_api.get_project_metrics(project['key'])
+                if metrics:
+                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                    metrics_processor.store_metrics(project['key'], project['name'], metrics_dict)
+                    
+                    st.session_state.metrics_cache[project['key']] = {
+                        'name': project['name'],
+                        'metrics': metrics_dict,
+                        'is_active': True,
+                        'last_update': datetime.now(timezone.utc).isoformat()
+                    }
+                    
+                    st.session_state.last_metrics_update[project['key']] = time.time()
+                    st.session_state.update_status[project['key']] = 'success'
+                    st.session_state.throttle_updates[project['key']] = time.time()
+                    
+                time.sleep(0.3)  # Slightly longer delay to ensure UI responsiveness
+                
+            except Exception as e:
+                logger.error(f"Error updating project {project['key']}: {str(e)}")
+                st.session_state.update_status[project['key']] = 'error'
+                st.session_state.consecutive_errors += 1
+                continue
+        
+        st.session_state.current_update_batch = None
+        
+        if not st.session_state.update_queue:
+            st.session_state.update_progress = 1.0
+            st.session_state.update_message = "✅ Update completed successfully!"
+            st.session_state.rerun_safe = True
+            st.session_state.last_successful_update = time.time()
+            st.session_state.consecutive_errors = 0
+            return True, st.session_state.metrics_cache
+        
+        safe_rerun()
+        return False, None
+        
     except Exception as e:
-        logger.error(f"Error during update for {entity_id}: {str(e)}")
-        progress_bar.progress(1.0, f"❌ Error during update: {str(e)}")
-        # Ensure locks are released
-        st.session_state.update_in_progress = False
-        st.session_state[f'update_lock_{entity_id}'] = False
-        return False, 0
+        logger.error(f"Error in batch update: {str(e)}")
+        st.session_state.update_error = str(e)
+        st.session_state.update_progress = 1.0
+        st.session_state.update_message = f"❌ Update failed: {str(e)}"
+        st.session_state.rerun_safe = True
+        st.session_state.consecutive_errors += 1
+        cleanup_session_state()
+        return False, None
+
+def update_all_projects_from_sonarcloud(sonar_api, metrics_processor):
+    """Update all projects from SonarCloud with improved progress tracking and error handling"""
+    if st.session_state.update_in_progress:
+        logger.info("Update already in progress")
+        return False, {}
+
+    try:
+        logger.info("Starting update for all projects")
+        st.session_state.update_in_progress = True
+        st.session_state.update_error = None
+        st.session_state.update_progress = 0.0
+        st.session_state.update_message = "Starting update process..."
+        st.session_state.rerun_safe = False
+        st.session_state.metrics_cache = {}
+        
+        return batch_update_projects(sonar_api, metrics_processor)
+
+    except Exception as e:
+        logger.error(f"Error in update_all_projects: {str(e)}")
+        st.session_state.update_error = str(e)
+        st.session_state.update_progress = 1.0
+        st.session_state.update_message = f"❌ Update failed: {str(e)}"
+        st.session_state.rerun_safe = True
+        cleanup_session_state()
+        return False, {}
+
+def handle_update_metrics(sonar_api, metrics_processor):
+    """Handle metrics update with improved UI responsiveness and error handling"""
+    try:
+        if st.session_state.update_in_progress:
+            st.warning("⚙️ Update in progress, please wait...")
+            st.progress(st.session_state.update_progress)
+            st.info(st.session_state.update_message)
+            return
+
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.info("🔄 Click the button to update metrics from SonarCloud")
+        with col2:
+            if st.button("Update Metrics", key="update_btn", disabled=st.session_state.update_in_progress):
+                with st.spinner("Starting update..."):
+                    success, result = update_all_projects_from_sonarcloud(sonar_api, metrics_processor)
+                    if success:
+                        st.success("✅ Metrics updated successfully!")
+                        time.sleep(0.5)  # Brief pause to ensure UI updates
+                        st.session_state.update_in_progress = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Update failed: {st.session_state.update_error}")
+                        cleanup_session_state()
+
+        # Show progress if update is in progress
+        if st.session_state.update_in_progress:
+            st.progress(st.session_state.update_progress)
+            st.info(st.session_state.update_message)
+            
+            if st.session_state.update_error:
+                st.error(f"❌ Error: {st.session_state.update_error}")
+                if st.button("Retry Update"):
+                    cleanup_session_state()
+                    st.rerun()
+
+    except Exception as e:
+        logger.error(f"Error in handle_update_metrics: {str(e)}")
+        st.error(f"An unexpected error occurred: {str(e)}")
+        cleanup_session_state()
 
 def main():
+    """Main application with improved error handling and state management"""
     try:
         st.set_page_config(
             page_title="SonarCloud Metrics Dashboard",
@@ -197,17 +327,13 @@ def main():
             initial_sidebar_state="expanded"
         )
 
-        # Reset pending rerun flag at the start of each session
-        if st.session_state.get('pending_rerun'):
-            st.session_state.pending_rerun = False
+        if not initialize_session_state():
+            st.error("Failed to initialize application state. Please refresh the page.")
+            return
 
-        initialize_session_state()
-        initialize_database()
-        
-        scheduler = SchedulerService()
-        if not scheduler.scheduler.running:
-            logger.info("Starting scheduler service")
-            scheduler.start()
+        if not handle_startup():
+            st.error("Failed to start application services. Please check the logs and try again.")
+            return
 
         with st.sidebar:
             st.image("static/sonarcloud-logo.svg", width=180)
@@ -221,17 +347,16 @@ def main():
             )
 
             if view_mode != st.session_state.get('previous_view'):
-                st.session_state.update_in_progress = False
-                st.session_state.metrics_cache = {}
-                st.session_state.current_metrics = {}
-                st.session_state.project_metrics = {}
+                cleanup_session_state()
                 st.session_state['previous_view'] = view_mode
 
-        token = os.getenv('SONARCLOUD_TOKEN') or st.text_input(
-            "Enter SonarCloud Token",
-            type="password",
-            key="token_input"
-        )
+        token = os.getenv('SONARCLOUD_TOKEN')
+        if not token:
+            token = st.text_input(
+                "Enter SonarCloud Token",
+                type="password",
+                key="token_input"
+            )
         
         if not token:
             st.warning("⚠️ Please enter your SonarCloud token to continue")
@@ -254,7 +379,6 @@ def main():
             return
 
         metrics_processor = MetricsProcessor()
-        
         st.success(f"✅ Token validated successfully. Using organization: {sonar_api.organization}")
 
         if view_mode == "Automated Reports":
@@ -288,10 +412,9 @@ def main():
                 )
                 
                 if show_inactive != st.session_state.show_inactive_projects:
+                    cleanup_session_state()
                     st.session_state.show_inactive_projects = show_inactive
-                    st.session_state.metrics_cache = {}
-                    st.session_state.project_metrics = {}
-                    st.rerun()  # Use safe rerun instead of direct rerun
+                    safe_rerun()
 
             filtered_projects = {k: v for k, v in project_names.items()}
             if not show_inactive:
@@ -306,153 +429,48 @@ def main():
             )
 
             if selected_project and selected_project != st.session_state.get('previous_project'):
-                # Clear project-specific caches
-                st.session_state.metrics_cache.pop(selected_project, None)
-                st.session_state.current_metrics.pop(selected_project, None)
-                st.session_state.project_metrics.pop(selected_project, None)
-                st.session_state.historical_data.pop(selected_project, None)
+                cleanup_session_state()
                 st.session_state.previous_project = selected_project
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-
-                st.markdown("### 🔄 Update Status")
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    if st.button("🔄 Update All Projects", 
-                              use_container_width=True, 
-                              disabled=st.session_state.update_in_progress):
-                        progress_bar = st.progress(0, "Starting update...")
-                        success, projects_data = update_all_projects_from_sonarcloud(
-                            sonar_api, 
-                            metrics_processor, 
-                            progress_bar
-                        )
-                        if success:
-                            progress_bar.progress(0.8, "Generating updated reports...")
-                            st.session_state.metrics_cache = projects_data
-                            
-                            # Generate and send reports after successful update
-                            report_generator = ReportGenerator()
-                            daily_report = report_generator.generate_daily_report()
-                            weekly_report = report_generator.generate_weekly_report()
-                            
-                            if daily_report:
-                                recipients = report_generator.get_report_recipients('daily')
-                                if recipients:
-                                    report_generator.send_email(
-                                        recipients,
-                                        "Daily SonarCloud Metrics Report (Auto-Update)",
-                                        daily_report,
-                                        'HTML'
-                                    )
-                            
-                            if weekly_report:
-                                recipients = report_generator.get_report_recipients('weekly')
-                                if recipients:
-                                    report_generator.send_email(
-                                        recipients,
-                                        "Weekly SonarCloud Metrics Report (Auto-Update)",
-                                        weekly_report,
-                                        'HTML'
-                                    )
-                            
-                            progress_bar.progress(1.0, f"✅ Updated {len(projects_data)} projects and generated reports")
-                            st.success(f"Updated {len(projects_data)} projects from SonarCloud")
-                            st.rerun()
-                        else:
-                            st.error("Failed to update projects from SonarCloud")
-
-                st.markdown("---")
-
-                # Display all projects metrics
-                st.markdown("### 📊 Project Metrics")
-                if 'all' not in st.session_state.project_metrics:
-                    st.session_state.project_metrics['all'] = metrics_processor.get_all_projects_metrics()
+                handle_update_metrics(sonar_api, metrics_processor)
                 
-                projects_data = st.session_state.metrics_cache or st.session_state.project_metrics['all']
-                if projects_data:
-                    display_multi_project_metrics(projects_data)
-                    plot_multi_project_comparison(projects_data)
-                    create_download_report(projects_data)
-                else:
-                    st.info("No projects data available")
-            
-            elif selected_project:
-                project_info = project_status.get(selected_project, {})
-                st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
-                
-                is_inactive = not project_info.get('is_active', True)
-                
-                if not is_inactive:
-                    col1, col2 = st.columns([3, 1])
-                    with col2:
-                        current_time = datetime.now(timezone.utc).timestamp()
-                        last_update = st.session_state.last_metrics_update.get(selected_project, 0)
-                        
-                        update_enabled = (
-                            (current_time - last_update) > 5 and 
-                            not st.session_state.update_in_progress and
-                            not st.session_state.get(f'update_lock_{selected_project}')
-                        )
-                        
-                        if st.button("🔄 Update Metrics", 
-                                  use_container_width=True, 
-                                  disabled=not update_enabled):
-                            progress_bar = st.progress(0, "Starting update...")
-                            success, updated_count = manual_update_metrics(
-                                'repository', 
-                                selected_project,
-                                progress_bar
-                            )
-                
-                metrics_tabs = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
-                
-                with metrics_tabs[0]:  # Current Metrics tab
-                    try:
-                        if selected_project not in st.session_state.current_metrics:
-                            metrics = metrics_processor.get_latest_metrics(selected_project)
-                            if metrics:
-                                metrics_dict = {k: float(v) for k, v in metrics.items() 
-                                            if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
-                                st.session_state.current_metrics[selected_project] = metrics_dict
-                                display_current_metrics(metrics_dict)
-                                
-                                # Display update preferences
-                                update_prefs = get_update_preferences('repository', selected_project)
-                                if update_prefs:
-                                    st.markdown("---")
-                                    col1, col2 = st.columns(2)
-                                    with col1:
-                                        st.info(f"🔄 Update Interval: {format_update_interval(update_prefs['update_interval'])}")
-                                    with col2:
-                                        if update_prefs['last_update']:
-                                            st.info(f"⏰ Last Update: {format_last_update(update_prefs['last_update'])}")
-                    except Exception as e:
-                        logger.error(f"Error displaying metrics for {selected_project}: {str(e)}")
-                        st.error(f"Error displaying metrics: {str(e)}")
-
-                with metrics_tabs[1]:  # Metric Trends tab
-                    try:
-                        if selected_project not in st.session_state.historical_data:
-                            historical_data = metrics_processor.get_historical_data(selected_project)
-                            if historical_data:
-                                st.session_state.historical_data[selected_project] = historical_data
-                        
-                        if selected_project in st.session_state.historical_data:
-                            historical_data = st.session_state.historical_data[selected_project]
-                            if historical_data:
-                                plot_metrics_history(historical_data)
-                                display_metric_trends(historical_data)
-                            else:
-                                st.info("No historical data available for trend analysis")
-                    except Exception as e:
-                        logger.error(f"Error displaying trends for {selected_project}: {str(e)}")
-                        st.error(f"Error displaying trends: {str(e)}")
+                if st.session_state.metrics_cache:
+                    display_multi_project_metrics(st.session_state.metrics_cache)
+                    plot_multi_project_comparison(st.session_state.metrics_cache)
+                    create_download_report(st.session_state.metrics_cache)
+            else:
+                if selected_project in project_status:
+                    project_info = project_status[selected_project]
+                    st.markdown(f"## {project_info['name']}")
+                    
+                    handle_update_metrics(sonar_api, metrics_processor)
+                    
+                    if not project_info['is_active']:
+                        st.warning("⚠️ This project is currently inactive")
+                    
+                    if project_info['is_marked_for_deletion']:
+                        st.error("🗑️ This project is marked for deletion")
+                    
+                    display_interval_settings(selected_project)
+                    
+                    if st.session_state.metrics_cache and selected_project in st.session_state.metrics_cache:
+                        display_current_metrics(st.session_state.metrics_cache[selected_project]['metrics'])
+                        historical_data = metrics_processor.get_historical_metrics(selected_project)
+                        if historical_data:
+                            plot_metrics_history(historical_data)
+                            display_metric_trends(historical_data)
+                        create_download_report(st.session_state.metrics_cache)
 
     except Exception as e:
-        logger.error(f"Main application error: {str(e)}", exc_info=True)
-        st.error(f"An error occurred: {str(e)}")
+        logger.error(f"Critical error in main application: {str(e)}\n{traceback.format_exc()}")
+        st.error(f"""
+        An unexpected error occurred. Please try refreshing the page.
+        If the problem persists, check the application logs.
+        Error: {str(e)}
+        """)
+        cleanup_session_state()
 
 if __name__ == "__main__":
     main()
