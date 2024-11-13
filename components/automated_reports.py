@@ -179,7 +179,9 @@ def display_automated_reports():
                 
                 if schedule_id:
                     st.success("✅ Report schedule created successfully!")
-                    st.experimental_rerun()
+                    if not st.session_state.get('pending_rerun'):
+                        st.session_state.pending_rerun = True
+                        st.rerun()
     
     # Display existing schedules
     st.markdown("### 📋 Existing Schedules")
@@ -201,7 +203,7 @@ def display_automated_reports():
                 
                 with col2:
                     next_run = schedule['next_run_time'].strftime('%Y-%m-%d %H:%M UTC') if schedule['next_run_time'] else 'Not scheduled'
-                    last_run = schedule['last_run'].strftime('%Y-%m-% d %H:%M UTC') if schedule['last_run'] else 'Never'
+                    last_run = schedule['last_run'].strftime('%Y-%m-%d %H:%M UTC') if schedule['last_run'] else 'Never'
                     
                     st.markdown(f"**Next Run:** {next_run}")
                     st.markdown(f"**Last Run:** {last_run}")
@@ -212,14 +214,20 @@ def display_automated_reports():
                         if not status:
                             if toggle_schedule_status(schedule['id'], True):
                                 st.success("Schedule activated")
-                                st.experimental_rerun()
+                                if not st.session_state.get('pending_rerun'):
+                                    st.session_state.pending_rerun = True
+                                    st.rerun()
                     else:
                         if status:
                             if toggle_schedule_status(schedule['id'], False):
                                 st.warning("Schedule deactivated")
-                                st.experimental_rerun()
+                                if not st.session_state.get('pending_rerun'):
+                                    st.session_state.pending_rerun = True
+                                    st.rerun()
                     
                     if st.button("🗑️", key=f"delete_{schedule['id']}"):
                         if delete_report_schedule(schedule['id']):
                             st.success("Schedule deleted")
-                            st.experimental_rerun()
+                            if not st.session_state.get('pending_rerun'):
+                                st.session_state.pending_rerun = True
+                                st.rerun()
