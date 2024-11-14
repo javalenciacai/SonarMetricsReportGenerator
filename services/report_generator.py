@@ -14,68 +14,8 @@ class ReportGenerator:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        self.smtp_username = os.getenv('SMTP_USERNAME', '')
-        self.smtp_password = os.getenv('SMTP_PASSWORD', '')
-
-    def get_report_recipients(self, report_type):
-        """Get recipients for a specific report type"""
-        query = """
-        SELECT recipients
-        FROM report_schedules
-        WHERE report_type = %s AND is_active = true;
-        """
-        try:
-            result = execute_query(query, (report_type,))
-            if result:
-                recipients = set()
-                for row in result:
-                    if isinstance(row[0], str):
-                        recipients.update(json.loads(row[0]))
-                    else:
-                        recipients.update(row[0])
-                return list(recipients)
-            return []
-        except Exception as e:
-            logger.error(f"Error getting report recipients: {str(e)}")
-            return []
-
-    def send_email(self, recipients, subject, content, report_format='HTML'):
-        """Send email using configured SMTP settings"""
-        if not all([self.smtp_username, self.smtp_password, recipients]):
-            logger.error("Missing required SMTP credentials or recipients")
-            return False
-
-        try:
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = self.smtp_username
-            msg['To'] = ', '.join(recipients)
-            
-            content_type = 'html' if report_format.lower() == 'HTML' else 'plain'
-            msg.attach(MIMEText(content, content_type))
-            
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error sending email: {str(e)}")
-            return False
-
-    def test_smtp_connection(self):
-        """Test SMTP connection and credentials"""
-        if not all([self.smtp_username, self.smtp_password]):
-            return False, "Missing SMTP credentials"
-
-        try:
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_username, self.smtp_password)
-            return True, "SMTP connection successful"
-        except Exception as e:
-            return False, f"SMTP connection failed: {str(e)}"
+        self.smtp_username = os.getenv('SMTP_USERNAME')
+        self.smtp_password = os.getenv('SMTP_PASSWORD')
 
     def generate_daily_report(self, project_key=None):
         """Generate daily report with 24-hour comparison"""
@@ -133,6 +73,37 @@ class ReportGenerator:
         if alerts:
             return self._format_metric_alerts(alerts)
         return None
+
+    def send_email(self, recipients, subject, content, report_format='HTML'):
+        """Send email using configured SMTP settings"""
+        try:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.smtp_username
+            msg['To'] = ', '.join(recipients)
+            
+            content_type = 'html' if report_format.lower() == 'html' else 'plain'
+            msg.attach(MIMEText(content, content_type))
+            
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error sending email: {str(e)}")
+            return False
+
+    def test_smtp_connection(self):
+        """Test SMTP connection and credentials"""
+        try:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_username, self.smtp_password)
+            return True, "SMTP connection successful"
+        except Exception as e:
+            return False, f"SMTP connection failed: {str(e)}"
 
     def _get_current_metrics(self, project_key=None):
         """Get current metrics from database for a project or all projects"""
@@ -778,25 +749,3 @@ class ReportGenerator:
                 }
             </style>
         """
-
-    def get_report_recipients(self, report_type):
-        """Get recipients for a specific report type"""
-        query = """
-        SELECT recipients
-        FROM report_schedules
-        WHERE report_type = %s AND is_active = true;
-        """
-        try:
-            result = execute_query(query, (report_type,))
-            if result:
-                recipients = set()
-                for row in result:
-                    if isinstance(row[0], str):
-                        recipients.update(json.loads(row[0]))
-                    else:
-                        recipients.update(row[0])
-                return list(recipients)
-            return []
-        except Exception as e:
-            logger.error(f"Error getting report recipients: {str(e)}")
-            return []

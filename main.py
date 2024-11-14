@@ -135,40 +135,14 @@ def manual_update_metrics(entity_type, entity_id, progress_bar):
             success, summary = update_entity_metrics(entity_type, entity_id)
             
             if success:
-                progress_bar.progress(0.8, "Generating updated reports...")
+                progress_bar.progress(1.0, "✅ Update completed successfully!")
                 # Update timestamps and clear caches
                 st.session_state.last_metrics_update[entity_id] = current_time
                 st.session_state.metrics_cache.pop(entity_id, None)
                 st.session_state.current_metrics.pop(entity_id, None)
                 st.session_state.project_metrics.pop(entity_id, None)
                 st.session_state.historical_data.pop(entity_id, None)
-
-                # Generate and send reports after successful update
-                report_generator = ReportGenerator()
-                daily_report = report_generator.generate_daily_report(entity_id)
-                if daily_report:
-                    recipients = report_generator.get_report_recipients('daily')
-                    if recipients:
-                        report_generator.send_email(
-                            recipients,
-                            "Daily SonarCloud Metrics Report (Auto-Update)",
-                            daily_report,
-                            'HTML'
-                        )
-
-                weekly_report = report_generator.generate_weekly_report(entity_id)
-                if weekly_report:
-                    recipients = report_generator.get_report_recipients('weekly')
-                    if recipients:
-                        report_generator.send_email(
-                            recipients,
-                            "Weekly SonarCloud Metrics Report (Auto-Update)",
-                            weekly_report,
-                            'HTML'
-                        )
-
-                progress_bar.progress(1.0, "✅ Update and reports completed!")
-                st.rerun()
+                st.rerun()  # Use safe rerun instead of direct rerun
                 return True, summary.get('updated_count', 0)
             else:
                 error_msg = summary.get('errors', ['Unknown error'])[0]
@@ -329,37 +303,9 @@ def main():
                             progress_bar
                         )
                         if success:
-                            progress_bar.progress(0.8, "Generating updated reports...")
                             st.session_state.metrics_cache = projects_data
-                            
-                            # Generate and send reports after successful update
-                            report_generator = ReportGenerator()
-                            daily_report = report_generator.generate_daily_report()
-                            weekly_report = report_generator.generate_weekly_report()
-                            
-                            if daily_report:
-                                recipients = report_generator.get_report_recipients('daily')
-                                if recipients:
-                                    report_generator.send_email(
-                                        recipients,
-                                        "Daily SonarCloud Metrics Report (Auto-Update)",
-                                        daily_report,
-                                        'HTML'
-                                    )
-                            
-                            if weekly_report:
-                                recipients = report_generator.get_report_recipients('weekly')
-                                if recipients:
-                                    report_generator.send_email(
-                                        recipients,
-                                        "Weekly SonarCloud Metrics Report (Auto-Update)",
-                                        weekly_report,
-                                        'HTML'
-                                    )
-                            
-                            progress_bar.progress(1.0, f"✅ Updated {len(projects_data)} projects and generated reports")
                             st.success(f"Updated {len(projects_data)} projects from SonarCloud")
-                            st.rerun()
+                            st.rerun()  # Use safe rerun instead of direct rerun
                         else:
                             st.error("Failed to update projects from SonarCloud")
 
