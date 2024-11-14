@@ -25,3 +25,10 @@ toolbarMode = "minimal"
 fastReruns = true
 magicEnabled = true
 installTracer = true
+
+[logger]
+level = "info"
+messageFormat = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+[global]
+developmentMode = false
