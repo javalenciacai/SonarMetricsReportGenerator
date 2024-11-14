@@ -11,17 +11,3 @@ psycopg2-binary
 requests
 streamlit
 plotly
-markdown
-numpy
-python-dateutil
-streamlit>=1.24.0
-streamlit
-pillow
-tenacity
-apscheduler==3.10.4
-markdown==3.5.1
-pandas==2.1.2
-plotly==5.18.0
-psycopg2-binary==2.9.9
-requests==2.31.0
-streamlit==1.28.0
