@@ -75,6 +75,8 @@ def manual_update_metrics(entity_type, entity_id, progress_bar):
         
         if success:
             progress_bar.progress(1.0, "✅ Update completed successfully!")
+            # Set session state to trigger rerun
+            st.session_state.update_successful = True
             return True, summary.get('updated_count', 0)
         else:
             error_msg = summary.get('errors', ['Unknown error'])[0]
@@ -105,6 +107,12 @@ def main():
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
             st.session_state.update_in_progress = False
+            st.session_state.update_successful = False
+
+        # Check if last update was successful and rerun is needed
+        if st.session_state.get('update_successful', False):
+            st.session_state.update_successful = False
+            st.rerun()
 
         initialize_database()
         
@@ -210,7 +218,6 @@ def main():
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
 
-                # Add manual update button for all projects
                 st.markdown("### 🔄 Update Status")
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
@@ -220,16 +227,16 @@ def main():
                             success, projects_data = update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar)
                             if success:
                                 st.success(f"Updated {len(projects_data)} projects from SonarCloud")
+                                st.session_state.update_successful = True
+                                st.rerun()
                             else:
                                 st.error("Failed to update projects from SonarCloud")
                         except Exception as e:
                             progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
                             st.error(f"Error updating projects: {str(e)}")
 
-                # Add spacing
                 st.markdown("---")
 
-                # Display metrics in separate section
                 st.markdown("### 📊 Project Metrics")
                 projects_data = metrics_processor.get_all_projects_metrics()
                 if projects_data:
@@ -245,7 +252,6 @@ def main():
                 
                 is_inactive = not project_info.get('is_active', True)
                 
-                # Add manual update button for individual project
                 if not is_inactive:
                     col1, col2 = st.columns([3, 1])
                     with col2:
