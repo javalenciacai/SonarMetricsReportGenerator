@@ -1,4 +1,4 @@
-modules = ["python-3.11"]
+modules = ["python-3.11", "postgresql-16"]
 
 [nix]
 channel = "stable-24_05"
@@ -27,11 +27,31 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run main.py --server.address 0.0.0.0 --server.port 8501 --logger.level=debug"
+args = "streamlit run main.py --server.address=0.0.0.0 --server.port=8501"
 waitForPort = 8501
 
 [deployment]
-run = ["sh", "-c", "streamlit run main.py --server.address 0.0.0.0 --server.port 8501 --logger.level=debug"]
+run = ["sh", "-c", "streamlit run main.py --server.address=0.0.0.0 --server.port=8501"]
+
+[[ports]]
+localPort = 3000
+externalPort = 3001
+
+[[ports]]
+localPort = 3001
+externalPort = 3002
+
+[[ports]]
+localPort = 3002
+externalPort = 3003
+
+[[ports]]
+localPort = 3003
+externalPort = 4200
+
+[[ports]]
+localPort = 4200
+externalPort = 6000
 
 [[ports]]
 localPort = 5000
@@ -42,5 +62,13 @@ localPort = 5010
 externalPort = 80
 
 [[ports]]
+localPort = 6000
+externalPort = 6800
+
+[[ports]]
 localPort = 8501
 externalPort = 3000
+
+[[ports]]
+localPort = 8502
+externalPort = 5173
