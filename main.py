@@ -17,8 +17,9 @@ from components.group_management import manage_project_groups
 from components.interval_settings import display_interval_settings
 from components.automated_reports import display_automated_reports
 from database.schema import initialize_database, get_update_preferences
+from database.connection import execute_query
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 
 logging.basicConfig(
@@ -27,65 +28,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def update_all_projects_data(sonar_api, metrics_processor):
-    """Update metrics for all projects from SonarCloud"""
-    logger.info("Starting update for all projects")
-    
-    sonar_projects = sonar_api.get_projects()
-    project_keys = {p['key']: p['name'] for p in sonar_projects}
-    
-    existing_projects = metrics_processor.get_project_status()
-    for project in existing_projects:
-        if project['repo_key'] not in project_keys and project['is_active']:
-            metrics_processor.mark_project_inactive(project['repo_key'])
-            logger.info(f"Marked inactive project that's not in SonarCloud: {project['repo_key']}")
-    
-    updated_projects = {}
-    
-    for project_key, project_name in project_keys.items():
-        try:
-            metrics = sonar_api.get_project_metrics(project_key)
-            if metrics:
-                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
-                if metrics_processor.store_metrics(project_key, project_name, metrics_dict, reset_failures=True):
-                    updated_projects[project_key] = {
-                        'name': project_name,
+def update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar):
+    try:
+        progress_bar.progress(0.1, "Fetching projects from SonarCloud...")
+        projects = sonar_api.get_projects()
+        
+        if not projects:
+            progress_bar.progress(1.0, "❌ No projects found in SonarCloud")
+            return False, {}
+            
+        total_projects = len(projects)
+        updated_projects = {}
+        
+        for idx, project in enumerate(projects, 1):
+            progress = 0.1 + (0.9 * (idx / total_projects))
+            progress_bar.progress(progress, f"Updating {project['name']} ({idx}/{total_projects})")
+            
+            try:
+                metrics = sonar_api.get_project_metrics(project['key'])
+                if metrics:
+                    metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                    metrics_processor.store_metrics(project['key'], project['name'], metrics_dict, reset_failures=True)
+                    updated_projects[project['key']] = {
+                        'name': project['name'],
                         'metrics': metrics_dict,
                         'is_active': True
                     }
-                    logger.info(f"Updated metrics for project: {project_key}")
-            else:
-                logger.warning(f"No metrics found for project: {project_key}")
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                metrics_processor.mark_project_inactive(project_key)
-                logger.warning(f"Project {project_key} marked as inactive - not found in SonarCloud")
-            else:
-                logger.error(f"Error updating project {project_key}: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error updating project {project_key}: {str(e)}")
-    
-    for project in existing_projects:
-        if project['repo_key'] not in updated_projects and not project.get('is_marked_for_deletion'):
-            latest_metrics = metrics_processor.get_latest_metrics(project['repo_key'])
-            if latest_metrics:
-                metrics_dict = {
-                    'bugs': float(latest_metrics.get('bugs', 0)),
-                    'vulnerabilities': float(latest_metrics.get('vulnerabilities', 0)),
-                    'code_smells': float(latest_metrics.get('code_smells', 0)),
-                    'coverage': float(latest_metrics.get('coverage', 0)),
-                    'duplicated_lines_density': float(latest_metrics.get('duplicated_lines_density', 0)),
-                    'ncloc': float(latest_metrics.get('ncloc', 0)),
-                    'sqale_index': float(latest_metrics.get('sqale_index', 0))
-                }
-                updated_projects[project['repo_key']] = {
-                    'name': project['name'],
-                    'metrics': metrics_dict,
-                    'is_active': False,
-                    'is_marked_for_deletion': project.get('is_marked_for_deletion', False)
-                }
-    
-    return updated_projects
+            except Exception as e:
+                logger.error(f"Error updating project {project['key']}: {str(e)}")
+                
+        progress_bar.progress(1.0, "✅ Update completed!")
+        return True, updated_projects
+        
+    except Exception as e:
+        progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
+        return False, {}
+
+def manual_update_metrics(entity_type, entity_id, progress_bar):
+    """Perform manual update with progress tracking"""
+    try:
+        progress_bar.progress(0.2, "Initializing update...")
+        
+        success, summary = update_entity_metrics(entity_type, entity_id)
+        
+        progress_bar.progress(0.6, "Processing update...")
+        
+        if success:
+            progress_bar.progress(1.0, "✅ Update completed successfully!")
+            return True, summary.get('updated_count', 0)
+        else:
+            error_msg = summary.get('errors', ['Unknown error'])[0]
+            progress_bar.progress(1.0, f"❌ Update failed: {error_msg}")
+            return False, 0
+            
+    except Exception as e:
+        progress_bar.progress(1.0, f"❌ Error during update: {str(e)}")
+        return False, 0
 
 def main():
     try:
@@ -106,6 +104,7 @@ def main():
             st.session_state.show_inactive_projects = True
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
+            st.session_state.update_in_progress = False
 
         initialize_database()
         
@@ -182,17 +181,6 @@ def main():
                     'latest_metrics': project.get('latest_metrics', {})
                 }
 
-            sonar_projects = sonar_api.get_projects()
-            for project in sonar_projects:
-                if project['key'] not in project_names:
-                    project_names[project['key']] = f"✅ {project['name']}"
-                    project_status[project['key']] = {
-                        'name': project['name'],
-                        'is_active': True,
-                        'is_marked_for_deletion': False,
-                        'latest_metrics': {}
-                    }
-
             project_names['all'] = "📊 All Projects"
 
             with st.sidebar:
@@ -221,8 +209,29 @@ def main():
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
-                projects_data = update_all_projects_data(sonar_api, metrics_processor)
-                
+
+                # Add manual update button for all projects
+                st.markdown("### 🔄 Update Status")
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    if st.button("🔄 Update All Projects", use_container_width=True):
+                        progress_bar = st.progress(0, "Starting update...")
+                        try:
+                            success, projects_data = update_all_projects_from_sonarcloud(sonar_api, metrics_processor, progress_bar)
+                            if success:
+                                st.success(f"Updated {len(projects_data)} projects from SonarCloud")
+                            else:
+                                st.error("Failed to update projects from SonarCloud")
+                        except Exception as e:
+                            progress_bar.progress(1.0, f"❌ Update failed: {str(e)}")
+                            st.error(f"Error updating projects: {str(e)}")
+
+                # Add spacing
+                st.markdown("---")
+
+                # Display metrics in separate section
+                st.markdown("### 📊 Project Metrics")
+                projects_data = metrics_processor.get_all_projects_metrics()
                 if projects_data:
                     display_multi_project_metrics(projects_data)
                     plot_multi_project_comparison(projects_data)
@@ -236,6 +245,20 @@ def main():
                 
                 is_inactive = not project_info.get('is_active', True)
                 
+                # Add manual update button for individual project
+                if not is_inactive:
+                    col1, col2 = st.columns([3, 1])
+                    with col2:
+                        if st.button("🔄 Update Metrics", use_container_width=True):
+                            progress_bar = st.progress(0, "Starting update...")
+                            success, updated_count = manual_update_metrics(
+                                'repository', 
+                                selected_project,
+                                progress_bar
+                            )
+                            if success:
+                                st.rerun()
+                
                 current_tab, trends_tab = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
                 
                 with current_tab:
@@ -247,9 +270,10 @@ def main():
                             display_current_metrics(metrics_dict)
                     else:
                         try:
-                            metrics = sonar_api.get_project_metrics(selected_project)
+                            metrics = metrics_processor.get_latest_metrics(selected_project)
                             if metrics:
-                                metrics_dict = {m['metric']: float(m['value']) for m in metrics}
+                                metrics_dict = {k: float(v) for k, v in metrics.items() 
+                                            if k not in ['timestamp', 'last_seen', 'is_active', 'inactive_duration']}
                                 display_current_metrics(metrics_dict)
                                 create_download_report({selected_project: {
                                     'name': project_info['name'],

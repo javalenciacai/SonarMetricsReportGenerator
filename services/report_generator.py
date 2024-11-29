@@ -22,6 +22,10 @@ class ReportGenerator:
         current_metrics = self._get_current_metrics(project_key)
         previous_day = self._get_historical_metrics(project_key, hours=24)
         
+        if not current_metrics:
+            logger.warning("No current metrics available for daily report")
+            return None
+
         report = {
             'timestamp': datetime.now(timezone.utc),
             'type': 'daily',
@@ -37,6 +41,10 @@ class ReportGenerator:
         current_metrics = self._get_current_metrics(project_key)
         previous_week = self._get_historical_metrics(project_key, days=7)
         
+        if not current_metrics:
+            logger.warning("No current metrics available for weekly report")
+            return None
+
         report = {
             'timestamp': datetime.now(timezone.utc),
             'type': 'weekly',
@@ -54,8 +62,11 @@ class ReportGenerator:
             thresholds = self._get_default_thresholds()
 
         current = self._get_current_metrics(project_key)
+        if not current:
+            logger.warning("No current metrics available for change detection")
+            return None
+
         previous = self._get_historical_metrics(project_key, hours=4)
-        
         changes = self._calculate_changes(current, previous)
         alerts = self._check_thresholds(changes, thresholds)
         
@@ -95,21 +106,42 @@ class ReportGenerator:
             return False, f"SMTP connection failed: {str(e)}"
 
     def _get_current_metrics(self, project_key=None):
-        """Get current metrics for a project or all projects"""
+        """Get current metrics from database for a project or all projects"""
         query = """
+        WITH RankedMetrics AS (
+            SELECT 
+                r.repo_key,
+                r.name as project_name,
+                m.bugs,
+                m.vulnerabilities,
+                m.code_smells,
+                m.coverage,
+                m.duplicated_lines_density,
+                m.ncloc,
+                m.sqale_index,
+                m.timestamp AT TIME ZONE 'UTC' as timestamp,
+                ROW_NUMBER() OVER (
+                    PARTITION BY r.repo_key 
+                    ORDER BY m.timestamp DESC
+                ) as rn
+            FROM metrics m
+            JOIN repositories r ON r.id = m.repository_id
+            WHERE r.is_active = true
+            {}
+        )
         SELECT 
-            r.repo_key,
-            r.name,
-            m.*
-        FROM metrics m
-        JOIN repositories r ON r.id = m.repository_id
-        WHERE r.is_active = true
-        {}
-        AND m.timestamp = (
-            SELECT MAX(timestamp)
-            FROM metrics m2
-            WHERE m2.repository_id = m.repository_id
-        );
+            repo_key,
+            project_name,
+            bugs,
+            vulnerabilities,
+            code_smells,
+            coverage,
+            duplicated_lines_density,
+            ncloc,
+            sqale_index,
+            timestamp
+        FROM RankedMetrics
+        WHERE rn = 1;
         """
         
         try:
@@ -127,7 +159,7 @@ class ReportGenerator:
             return []
 
     def _get_historical_metrics(self, project_key=None, hours=None, days=None):
-        """Get historical metrics for comparison"""
+        """Get historical metrics from database with proper UTC handling"""
         if hours:
             interval = f"{hours} hours"
         elif days:
@@ -136,27 +168,55 @@ class ReportGenerator:
             return []
 
         query = """
+        WITH HistoricalMetrics AS (
+            SELECT 
+                r.repo_key,
+                r.name as project_name,
+                m.bugs,
+                m.vulnerabilities,
+                m.code_smells,
+                m.coverage,
+                m.duplicated_lines_density,
+                m.ncloc,
+                m.sqale_index,
+                m.timestamp AT TIME ZONE 'UTC' as timestamp,
+                ROW_NUMBER() OVER (
+                    PARTITION BY r.repo_key 
+                    ORDER BY ABS(
+                        EXTRACT(EPOCH FROM (
+                            m.timestamp - (CURRENT_TIMESTAMP - INTERVAL '{}')
+                        ))
+                    )
+                ) as rn
+            FROM metrics m
+            JOIN repositories r ON r.id = m.repository_id
+            WHERE r.is_active = true
+            {}
+            AND m.timestamp <= CURRENT_TIMESTAMP - INTERVAL '{}'
+        )
         SELECT 
-            r.repo_key,
-            r.name,
-            m.*
-        FROM metrics m
-        JOIN repositories r ON r.id = m.repository_id
-        WHERE r.is_active = true
-        {}
-        AND m.timestamp <= CURRENT_TIMESTAMP - INTERVAL '{}'
-        AND m.timestamp > CURRENT_TIMESTAMP - INTERVAL '{}' - INTERVAL '1 hour'
-        ORDER BY m.timestamp DESC;
+            repo_key,
+            project_name,
+            bugs,
+            vulnerabilities,
+            code_smells,
+            coverage,
+            duplicated_lines_density,
+            ncloc,
+            sqale_index,
+            timestamp
+        FROM HistoricalMetrics
+        WHERE rn = 1;
         """
         
         try:
             if project_key:
                 result = execute_query(
-                    query.format('AND r.repo_key = %s', interval, interval),
+                    query.format(interval, 'AND r.repo_key = %s', interval),
                     (project_key,)
                 )
             else:
-                result = execute_query(query.format('', interval, interval))
+                result = execute_query(query.format(interval, '', interval))
             
             return [dict(row) for row in result] if result else []
         except Exception as e:
@@ -208,19 +268,28 @@ class ReportGenerator:
         return critical
 
     def _analyze_trends(self, project_key=None):
-        """Analyze metric trends over time"""
+        """Analyze metric trends from database"""
         query = """
-        SELECT 
-            r.repo_key,
-            r.name,
-            m.*,
-            m.timestamp::date as date
-        FROM metrics m
-        JOIN repositories r ON r.id = m.repository_id
-        WHERE r.is_active = true
-        {}
-        AND m.timestamp >= CURRENT_DATE - INTERVAL '30 days'
-        ORDER BY m.timestamp;
+        WITH DailyMetrics AS (
+            SELECT 
+                r.repo_key,
+                r.name as project_name,
+                DATE_TRUNC('day', m.timestamp AT TIME ZONE 'UTC') as metric_date,
+                AVG(m.bugs) as bugs,
+                AVG(m.vulnerabilities) as vulnerabilities,
+                AVG(m.code_smells) as code_smells,
+                AVG(m.coverage) as coverage,
+                AVG(m.duplicated_lines_density) as duplicated_lines_density,
+                AVG(m.ncloc) as ncloc
+            FROM metrics m
+            JOIN repositories r ON r.id = m.repository_id
+            WHERE r.is_active = true
+            {}
+            AND m.timestamp >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY r.repo_key, r.name, DATE_TRUNC('day', m.timestamp AT TIME ZONE 'UTC')
+            ORDER BY metric_date
+        )
+        SELECT * FROM DailyMetrics;
         """
         
         try:
@@ -242,7 +311,7 @@ class ReportGenerator:
                 if metric in df.columns:
                     trend = df[metric].diff().mean()
                     trends[metric] = {
-                        'direction': 'improving' if trend < 0 else 'worsening' if trend > 0 else 'stable',
+                        'direction': 'improving' if (trend < 0 if metric != 'coverage' else trend > 0) else 'worsening' if (trend > 0 if metric != 'coverage' else trend < 0) else 'stable',
                         'change_rate': abs(trend)
                     }
             
@@ -271,7 +340,7 @@ class ReportGenerator:
         return alerts
 
     def _format_daily_report(self, report_data):
-        """Format daily report in HTML with modern tech styling"""
+        """Format daily report in HTML"""
         html_template = f"""
         <!DOCTYPE html>
         <html lang="en">
@@ -304,7 +373,7 @@ class ReportGenerator:
         return html_template
 
     def _format_weekly_report(self, report_data):
-        """Format weekly report in HTML with modern tech styling"""
+        """Format weekly report in HTML"""
         html_template = f"""
         <!DOCTYPE html>
         <html lang="en">
@@ -341,8 +410,35 @@ class ReportGenerator:
         """
         return html_template
 
+    def _format_metric_alerts(self, alerts):
+        """Format metric alerts in HTML"""
+        html_template = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Metric Change Alert</title>
+            {self._get_report_css()}
+        </head>
+        <body>
+            <div class="container">
+                <div class="header alert-header">
+                    <h1>⚠️ Metric Change Alert</h1>
+                    <div class="timestamp">Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
+                </div>
+
+                <div class="alert-grid">
+                    {self._format_alerts_grid(alerts)}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return html_template
+
     def _format_metrics_section(self, metrics, changes=None):
-        """Format metrics section with modern styling"""
+        """Format metrics section with styling"""
         if not metrics:
             return "<div class='metric-card'>No metrics data available</div>"
 
@@ -384,7 +480,7 @@ class ReportGenerator:
         return "\n".join(metrics_html)
 
     def _format_critical_section(self, issues):
-        """Format critical issues section with modern styling"""
+        """Format critical issues section"""
         if not issues:
             return "<div class='metric-card'>No critical issues data available</div>"
 
@@ -414,7 +510,7 @@ class ReportGenerator:
         return "\n".join(issues_html)
 
     def _format_trends_grid(self, trends):
-        """Format trends with modern styling"""
+        """Format trends section"""
         if not trends:
             return "<div class='metric-card'>No trend data available</div>"
 
@@ -448,35 +544,8 @@ class ReportGenerator:
 
         return "\n".join(trend_html)
 
-    def _format_metric_alerts(self, alerts):
-        """Format metric alerts with modern styling"""
-        html_template = f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Metric Change Alert</title>
-            {self._get_report_css()}
-        </head>
-        <body>
-            <div class="container">
-                <div class="header alert-header">
-                    <h1>⚠️ Metric Change Alert</h1>
-                    <div class="timestamp">Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</div>
-                </div>
-
-                <div class="alert-grid">
-                    {self._format_alerts_grid(alerts)}
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        return html_template
-
     def _format_alerts_grid(self, alerts):
-        """Format alerts grid with modern styling"""
+        """Format alerts grid"""
         alerts_html = []
         for alert in alerts:
             trend_class = 'trend-negative' if alert['change'] > 0 else 'trend-positive'
@@ -496,7 +565,7 @@ class ReportGenerator:
         return "\n".join(alerts_html)
 
     def _generate_executive_summary(self, current, previous):
-        """Generate executive summary comparing current state with previous period"""
+        """Generate executive summary"""
         if not current or not previous:
             return "Insufficient data for executive summary"
         
@@ -504,14 +573,14 @@ class ReportGenerator:
         
         summary = []
         for metric, data in changes.items():
-            if abs(data['change_percent']) >= 5:  # Only report significant changes
+            if abs(data['change_percent']) >= 5:
                 direction = "improved" if data['change'] < 0 else "increased"
                 summary.append(f"{metric.replace('_', ' ').title()} has {direction} by {abs(data['change_percent']):.1f}%")
         
         return " | ".join(summary) if summary else "No significant changes detected"
 
     def _get_default_thresholds(self):
-        """Get default thresholds for metric changes"""
+        """Get default thresholds"""
         return {
             'bugs': 5,
             'vulnerabilities': 3,
@@ -521,7 +590,7 @@ class ReportGenerator:
         }
 
     def _get_report_css(self):
-        """Get modern tech-styled CSS for reports"""
+        """Get report CSS styling"""
         return """
             <style>
                 :root {
