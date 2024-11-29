@@ -1,8 +1,4 @@
 [server]
-address = "0.0.0.0"
-port = 8501
-enableCORS = true
 headless = true
-
-[theme]
-base = "dark"
+address = "0.0.0.0"
+port = 5010
