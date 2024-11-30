@@ -19,6 +19,7 @@ from components.automated_reports import display_automated_reports
 from database.schema import initialize_database, get_update_preferences
 from database.connection import execute_query
 import logging
+import time
 from datetime import datetime, timezone, timedelta
 import requests
 
@@ -105,6 +106,9 @@ def main():
             st.session_state.sonar_token = None
             st.session_state.view_mode = "Individual Projects"
             st.session_state.update_in_progress = False
+            st.session_state.last_update_time = None
+            st.session_state.update_cooldown = 5  # Cooldown in seconds
+            st.session_state.needs_refresh = False
 
         initialize_database()
         
@@ -249,15 +253,40 @@ def main():
                 if not is_inactive:
                     col1, col2 = st.columns([3, 1])
                     with col2:
-                        if st.button("🔄 Update Metrics", use_container_width=True):
-                            progress_bar = st.progress(0, "Starting update...")
-                            success, updated_count = manual_update_metrics(
-                                'repository', 
-                                selected_project,
-                                progress_bar
-                            )
-                            if success:
-                                st.rerun()
+                        current_time = datetime.now(timezone.utc)
+                        cooldown_remaining = 0
+                        if st.session_state.last_update_time:
+                            time_diff = (current_time - st.session_state.last_update_time).total_seconds()
+                            cooldown_remaining = max(0, st.session_state.update_cooldown - time_diff)
+
+                        if cooldown_remaining > 0:
+                            st.button("🔄 Update Metrics (Wait...)", disabled=True, use_container_width=True)
+                            st.info(f"⏳ Please wait {cooldown_remaining:.1f} seconds before updating again")
+                        elif st.session_state.update_in_progress:
+                            st.button("🔄 Updating...", disabled=True, use_container_width=True)
+                        elif st.button("🔄 Update Metrics", use_container_width=True):
+                            try:
+                                st.session_state.update_in_progress = True
+                                progress_bar = st.progress(0, "Starting update...")
+                                success, updated_count = manual_update_metrics(
+                                    'repository', 
+                                    selected_project,
+                                    progress_bar
+                                )
+                                if success:
+                                    st.session_state.last_update_time = current_time
+                                    st.session_state.update_in_progress = False
+                                    st.success(f"✅ Update completed successfully!")
+                                    if 'needs_refresh' not in st.session_state:
+                                        st.session_state.needs_refresh = True
+                                        time.sleep(1)  # Brief pause to show success message
+                                        st.rerun()
+                                else:
+                                    st.session_state.update_in_progress = False
+                                    st.error("❌ Update failed. Please try again later.")
+                            except Exception as e:
+                                st.session_state.update_in_progress = False
+                                st.error(f"❌ Error during update: {str(e)}")
                 
                 current_tab, trends_tab = st.tabs(["📊 Current Metrics", "📈 Metric Trends"])
                 
