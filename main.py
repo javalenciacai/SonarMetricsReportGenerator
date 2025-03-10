@@ -109,6 +109,8 @@ def main():
             st.session_state.last_update_time = None
             st.session_state.update_cooldown = 5  # Cooldown in seconds
             st.session_state.needs_refresh = False
+            st.session_state.user_session_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+            st.session_state.project_selection_time = None
 
         initialize_database()
         
@@ -204,12 +206,29 @@ def main():
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
                                 if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
+            # Save the previous project selection before making a new one
+            if 'selected_project' in st.session_state:
+                st.session_state.previous_project = st.session_state.selected_project
+            
+            # Crear un ID único para esta selección para evitar conflictos
+            selection_key = f"project_selection_{st.session_state.user_session_id}"
+            
             selected_project = st.sidebar.selectbox(
                 "Select Project",
                 options=list(filtered_projects.keys()),
                 format_func=lambda x: filtered_projects.get(x, x),
-                key='selected_project'
+                key=selection_key,
+                index=0 if 'selected_project' not in st.session_state else 
+                    list(filtered_projects.keys()).index(st.session_state.selected_project) 
+                    if st.session_state.selected_project in filtered_projects else 0
             )
+            
+            # Si el proyecto seleccionado es diferente del anterior, registrarlo
+            if 'selected_project' not in st.session_state or selected_project != st.session_state.selected_project:
+                prev_project = st.session_state.selected_project if 'selected_project' in st.session_state else None
+                logger.info(f"Project selection changed from {prev_project} to {selected_project}")
+                st.session_state.selected_project = selected_project
+                st.session_state.project_selection_time = datetime.now(timezone.utc)
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
@@ -245,7 +264,16 @@ def main():
             
             elif selected_project:
                 project_info = project_status.get(selected_project, {})
-                st.markdown(f"## 📊 Project Dashboard: {project_names[selected_project]}")
+                
+                # Muestra información de selección para ayudar con la depuración
+                selection_time = st.session_state.project_selection_time
+                selection_time_str = selection_time.strftime("%H:%M:%S") if selection_time else "N/A"
+                
+                # Añadir un ID único visible para el proyecto seleccionado
+                st.markdown(f"""
+                ## 📊 Project Dashboard: {project_names[selected_project]}
+                <small style="color:gray">ID: {selected_project} (Seleccionado a las {selection_time_str})</small>
+                """, unsafe_allow_html=True)
                 
                 is_inactive = not project_info.get('is_active', True)
                 
@@ -277,6 +305,12 @@ def main():
                                     st.session_state.last_update_time = current_time
                                     st.session_state.update_in_progress = False
                                     st.success(f"✅ Update completed successfully!")
+                                    
+                                    # Guardar el proyecto actual antes de recargar
+                                    current_selected = st.session_state.selected_project
+                                    logger.info(f"Preserving project selection before refresh: {current_selected}")
+                                    
+                                    # Recargar la página manteniendo la selección de proyecto
                                     if 'needs_refresh' not in st.session_state:
                                         st.session_state.needs_refresh = True
                                         time.sleep(1)  # Brief pause to show success message
