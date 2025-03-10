@@ -109,6 +109,7 @@ def main():
             st.session_state.last_update_time = None
             st.session_state.update_cooldown = 5  # Cooldown in seconds
             st.session_state.needs_refresh = False
+            st.session_state.force_rerun = False
             st.session_state.user_session_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
             st.session_state.project_selection_time = None
 
@@ -206,29 +207,44 @@ def main():
                 filtered_projects = {k: v for k, v in filtered_projects.items() 
                                 if '⚠️' not in v and '🗑️' not in v or k == 'all'}
 
-            # Save the previous project selection before making a new one
-            if 'selected_project' in st.session_state:
-                st.session_state.previous_project = st.session_state.selected_project
+            # Define una función de callback para cuando cambie la selección
+            def on_project_change():
+                selection = st.session_state.project_selectbox
+                prev_project = st.session_state.selected_project if 'selected_project' in st.session_state else None
+                
+                # Si el proyecto seleccionado ha cambiado
+                if selection != prev_project:
+                    logger.info(f"Project selection changed from {prev_project} to {selection}")
+                    st.session_state.selected_project = selection
+                    st.session_state.project_selection_time = datetime.now(timezone.utc)
+                    st.session_state.force_rerun = True
             
-            # Crear un ID único para esta selección para evitar conflictos
-            selection_key = f"project_selection_{st.session_state.user_session_id}"
+            # Asegurarse de que tenemos un valor inicial en la sesión
+            if 'selected_project' not in st.session_state:
+                st.session_state.selected_project = list(filtered_projects.keys())[0]
+            
+            # Crear el selectbox con un callback específico
+            index_to_use = 0
+            if st.session_state.selected_project in filtered_projects:
+                index_to_use = list(filtered_projects.keys()).index(st.session_state.selected_project)
             
             selected_project = st.sidebar.selectbox(
                 "Select Project",
                 options=list(filtered_projects.keys()),
                 format_func=lambda x: filtered_projects.get(x, x),
-                key=selection_key,
-                index=0 if 'selected_project' not in st.session_state else 
-                    list(filtered_projects.keys()).index(st.session_state.selected_project) 
-                    if st.session_state.selected_project in filtered_projects else 0
+                key="project_selectbox",
+                index=index_to_use,
+                on_change=on_project_change
             )
             
-            # Si el proyecto seleccionado es diferente del anterior, registrarlo
-            if 'selected_project' not in st.session_state or selected_project != st.session_state.selected_project:
-                prev_project = st.session_state.selected_project if 'selected_project' in st.session_state else None
-                logger.info(f"Project selection changed from {prev_project} to {selected_project}")
-                st.session_state.selected_project = selected_project
-                st.session_state.project_selection_time = datetime.now(timezone.utc)
+            # Si tenemos que forzar un rerun (después de cambiar el proyecto)
+            if 'force_rerun' in st.session_state and st.session_state.force_rerun:
+                # Limpiar el flag
+                st.session_state.force_rerun = False
+                # Asegurar que el proyecto seleccionado esté establecido correctamente antes del rerun
+                st.session_state.selected_project = st.session_state.project_selectbox
+                time.sleep(0.1)  # Pausa breve para estabilizar
+                st.rerun()
 
             if selected_project == 'all':
                 st.markdown("## 📊 All Projects Overview")
@@ -274,6 +290,10 @@ def main():
                 ## 📊 Project Dashboard: {project_names[selected_project]}
                 <small style="color:gray">ID: {selected_project} (Seleccionado a las {selection_time_str})</small>
                 """, unsafe_allow_html=True)
+                
+                # Mensaje para verificar la selección de proyecto
+                if st.session_state.selected_project == selected_project:
+                    st.success(f"✅ Mostrando información para: {project_names[selected_project]}")
                 
                 is_inactive = not project_info.get('is_active', True)
                 
